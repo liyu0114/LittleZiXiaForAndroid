@@ -135,75 +135,7 @@ class AppState extends ChangeNotifier {
   /// 初始化 Skills
   Future<void> _initializeSkills() async {
     await _skillManager.initialize();
-    
-    // 如果从assets加载失败，添加硬编码的默认技能
-    if (_skillManager.registry.available.isEmpty) {
-      debugPrint('[AppState] 从assets加载技能失败，使用硬编码默认技能');
-      _registerDefaultSkills();
-    }
-    
     notifyListeners();
-  }
-  
-  /// 注册硬编码的默认技能（后备方案）
-  void _registerDefaultSkills() {
-    final defaultSkills = [
-      Skill(
-        id: 'weather',
-        metadata: SkillMetadata(
-          name: 'weather',
-          description: '获取天气信息',
-        ),
-        body: '```http\nGET https://wttr.in/{location}?format=3\n```',
-      ),
-      Skill(
-        id: 'time',
-        metadata: SkillMetadata(
-          name: 'time',
-          description: '获取当前时间',
-        ),
-        body: '```builtin\ntime\n```',
-      ),
-      Skill(
-        id: 'calculator',
-        metadata: SkillMetadata(
-          name: 'calculator',
-          description: '计算器',
-        ),
-        body: '```builtin\ncalculator\n```',
-      ),
-      Skill(
-        id: 'random',
-        metadata: SkillMetadata(
-          name: 'random',
-          description: '随机数生成',
-        ),
-        body: '```builtin\nrandom\n```',
-      ),
-      Skill(
-        id: 'reminder',
-        metadata: SkillMetadata(
-          name: 'reminder',
-          description: '设置提醒',
-        ),
-        body: '设置提醒，支持格式：X小时后、X分钟后、X秒后',
-      ),
-      Skill(
-        id: 'joke',
-        metadata: SkillMetadata(
-          name: 'joke',
-          description: '讲一个笑话',
-        ),
-        body: '```builtin\njoke\n```',
-      ),
-    ];
-    
-    for (final skill in defaultSkills) {
-      _skillManager.registry.register(skill);
-      debugPrint('[AppState] 注册默认技能: ${skill.id}');
-    }
-    
-    debugPrint('[AppState] 已注册 ${defaultSkills.length} 个默认技能');
   }
 
   /// 初始化话题
