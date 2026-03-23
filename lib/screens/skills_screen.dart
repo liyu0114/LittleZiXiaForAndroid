@@ -22,19 +22,37 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
   SkillFilter _filter = SkillFilter.installed;
   late TabController _tabController;
   
-  // 待安装技能列表（内存中）
-  final List<Skill> _pendingSkills = [];
+  // 待安装技能列表（持久化到本地）
+  List<Skill> _pendingSkills = [];
+  
+  // 已卸载的技能ID列表（持久化到本地，避免重新注册）
+  List<String> _uninstalledSkillIds = [];
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _loadPersistedData();
+  }
+  
+  Future<void> _loadPersistedData() async {
+    // TODO: 从 SharedPreferences 加载持久化数据
+    // 暂时使用内存存储
+  }
+  
+  Future<void> _savePersistedData() async {
+    // TODO: 保存到 SharedPreferences
   }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, appState, child) {
+        // 过滤掉已卸载的技能
+        final installedSkills = appState.skillRegistry.available
+            .where((s) => !_uninstalledSkillIds.contains(s.id))
+            .toList();
+        
         return Column(
           children: [
             // 标签栏
@@ -49,6 +67,7 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
                 setState(() {
                   if (index == 0) _filter = SkillFilter.installed;
                   else if (index == 1) _filter = SkillFilter.pending;
+                  _selectedSkillId = null; // 切换标签时清除选中
                 });
               },
             ),
@@ -59,7 +78,7 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
                 controller: _tabController,
                 children: [
                   // 已安装技能
-                  _buildInstalledSkillsView(appState),
+                  _buildInstalledSkillsView(appState, installedSkills),
                   // 待安装技能
                   _buildPendingSkillsView(appState),
                   // 总结技能
@@ -75,8 +94,7 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
 
   // ==================== 已安装技能 ====================
   
-  Widget _buildInstalledSkillsView(AppState appState) {
-    final skills = appState.skillRegistry.available;
+  Widget _buildInstalledSkillsView(AppState appState, List<Skill> skills) {
     final filteredSkills = _searchQuery.isEmpty
         ? skills
         : skills.where((s) {
@@ -85,6 +103,89 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
                 s.metadata.description.toLowerCase().contains(query);
           }).toList();
 
+    // 响应式布局：竖屏时上下布局，横屏时左右布局
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isPortrait = constraints.maxHeight > constraints.maxWidth;
+        
+        if (isPortrait) {
+          // 竖屏：上下布局
+          return _buildPortraitLayout(filteredSkills, true);
+        } else {
+          // 横屏：左右布局
+          return _buildLandscapeLayout(filteredSkills, true);
+        }
+      },
+    );
+  }
+  
+  Widget _buildPortraitLayout(List<Skill> skills, bool isInstalled) {
+    return Column(
+      children: [
+        // 搜索框
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: TextField(
+            onChanged: (value) => setState(() => _searchQuery = value),
+            decoration: InputDecoration(
+              hintText: '搜索技能...',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+              isDense: true,
+            ),
+          ),
+        ),
+        
+        // 技能统计
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              Icon(
+                isInstalled ? Icons.extension : Icons.download_outlined,
+                size: 16,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                isInstalled 
+                    ? '已安装 ${skills.length} 个技能'
+                    : '待安装 ${skills.length} 个技能',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+              ),
+            ],
+          ),
+        ),
+        
+        // 技能列表
+        Expanded(
+          child: skills.isEmpty
+              ? _buildEmptyState(isInstalled)
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  itemCount: skills.length,
+                  itemBuilder: (context, index) {
+                    final skill = skills[index];
+                    final isSelected = _selectedSkillId == skill.id;
+                    return _buildSkillCard(skill, isSelected, isInstalled);
+                  },
+                ),
+        ),
+        
+        // 选中时显示详情卡片
+        if (_selectedSkillId != null && skills.any((s) => s.id == _selectedSkillId))
+          _buildDetailCard(skills.firstWhere((s) => s.id == _selectedSkillId), isInstalled),
+      ],
+    );
+  }
+  
+  Widget _buildLandscapeLayout(List<Skill> skills, bool isInstalled) {
     return Row(
       children: [
         // 左侧：技能列表
@@ -115,13 +216,15 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
                 child: Row(
                   children: [
                     Icon(
-                      Icons.extension,
+                      isInstalled ? Icons.extension : Icons.download_outlined,
                       size: 16,
                       color: Theme.of(context).colorScheme.primary,
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      '已安装 ${skills.length} 个技能',
+                      isInstalled 
+                          ? '已安装 ${skills.length} 个技能'
+                          : '待安装 ${skills.length} 个技能',
                       style: TextStyle(
                         fontSize: 12,
                         color: Theme.of(context).colorScheme.outline,
@@ -133,33 +236,15 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
 
               // 技能列表
               Expanded(
-                child: filteredSkills.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.extension_off,
-                              size: 48,
-                              color: Theme.of(context).colorScheme.outline,
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              _searchQuery.isEmpty ? '暂无技能' : '未找到匹配的技能',
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.outline,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
+                child: skills.isEmpty
+                    ? _buildEmptyState(isInstalled)
                     : ListView.builder(
                         padding: const EdgeInsets.symmetric(horizontal: 8),
-                        itemCount: filteredSkills.length,
+                        itemCount: skills.length,
                         itemBuilder: (context, index) {
-                          final skill = filteredSkills[index];
+                          final skill = skills[index];
                           final isSelected = _selectedSkillId == skill.id;
-                          return _buildSkillListItem(skill, isSelected, true);
+                          return _buildSkillListItem(skill, isSelected, isInstalled);
                         },
                       ),
               ),
@@ -169,14 +254,169 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
 
         // 右侧：技能详情
         Expanded(
-          child: _selectedSkillId == null
+          child: _selectedSkillId == null || !skills.any((s) => s.id == _selectedSkillId)
               ? _buildEmptyDetail()
               : _buildSkillDetail(
                   skills.firstWhere((s) => s.id == _selectedSkillId),
-                  true,
+                  isInstalled,
                 ),
         ),
       ],
+    );
+  }
+  
+  Widget _buildDetailCard(Skill skill, bool isInstalled) {
+    return Container(
+      height: 200,
+      margin: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  skill.metadata.name,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isInstalled ? Colors.blue.shade100 : Colors.orange.shade100,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    isInstalled ? '已安装' : '待安装',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isInstalled ? Colors.blue : Colors.orange,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(skill.metadata.description),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                if (isInstalled) ...[
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _uninstallSkill(skill),
+                      icon: const Icon(Icons.remove_circle_outline, size: 18),
+                      label: const Text('卸载'),
+                      style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => _testSkill(skill),
+                      icon: const Icon(Icons.play_arrow, size: 18),
+                      label: const Text('测试'),
+                    ),
+                  ),
+                ] else ...[
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => _installSkill(skill),
+                      icon: const Icon(Icons.download, size: 18),
+                      label: const Text('安装'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _removePendingSkill(skill),
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      label: const Text('删除'),
+                      style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildSkillCard(Skill skill, bool isSelected, bool isInstalled) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      color: isSelected 
+          ? Theme.of(context).colorScheme.primaryContainer
+          : null,
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: isInstalled
+                ? Theme.of(context).colorScheme.secondaryContainer
+                : Colors.orange.shade100,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            isInstalled ? Icons.extension : Icons.download_outlined,
+            size: 20,
+            color: isInstalled
+                ? Theme.of(context).colorScheme.onSecondaryContainer
+                : Colors.orange.shade700,
+          ),
+        ),
+        title: Text(skill.metadata.name),
+        subtitle: Text(
+          skill.metadata.description,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Icon(
+          skill.isSupported() ? Icons.check_circle : Icons.error_outline,
+          size: 20,
+          color: skill.isSupported() ? Colors.green : Colors.orange,
+        ),
+        onTap: () => setState(() => _selectedSkillId = skill.id),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(bool isInstalled) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            isInstalled ? Icons.extension_off : Icons.inbox_outlined,
+            size: 48,
+            color: Theme.of(context).colorScheme.outline,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            isInstalled ? '暂无已安装技能' : '暂无待安装技能',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.outline,
+            ),
+          ),
+          if (!isInstalled) ...[
+            const SizedBox(height: 8),
+            Text(
+              '从"总结技能"页面生成新技能',
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.outline,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -494,91 +734,16 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
   // ==================== 待安装技能 ====================
   
   Widget _buildPendingSkillsView(AppState appState) {
-    return Row(
-      children: [
-        // 左侧：待安装列表
-        SizedBox(
-          width: 280,
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.download_outlined,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '待安装技能',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const Spacer(),
-                    Text(
-                      '${_pendingSkills.length} 个',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              
-              Expanded(
-                child: _pendingSkills.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.inbox_outlined,
-                              size: 48,
-                              color: Theme.of(context).colorScheme.outline,
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              '暂无待安装技能',
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.outline,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              '从"总结技能"页面生成新技能',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Theme.of(context).colorScheme.outline,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        itemCount: _pendingSkills.length,
-                        itemBuilder: (context, index) {
-                          final skill = _pendingSkills[index];
-                          final isSelected = _selectedSkillId == skill.id;
-                          return _buildSkillListItem(skill, isSelected, false);
-                        },
-                      ),
-              ),
-            ],
-          ),
-        ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isPortrait = constraints.maxHeight > constraints.maxWidth;
         
-        // 右侧：详情
-        Expanded(
-          child: _selectedSkillId == null || !_pendingSkills.any((s) => s.id == _selectedSkillId)
-              ? _buildEmptyDetail()
-              : _buildSkillDetail(
-                  _pendingSkills.firstWhere((s) => s.id == _selectedSkillId),
-                  false,
-                ),
-        ),
-      ],
+        if (isPortrait) {
+          return _buildPortraitLayout(_pendingSkills, false);
+        } else {
+          return _buildLandscapeLayout(_pendingSkills, false);
+        }
+      },
     );
   }
 
@@ -794,35 +959,12 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 80,
-            child: Text(
-              label,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.outline,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(value),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _uninstallSkill(Skill skill) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('卸载技能'),
-        content: Text('确定要卸载技能 "${skill.metadata.name}" 吗？\n\n卸载后将移到待安装列表。'),
+        content: Text('确定要卸载技能 "${skill.metadata.name}" 吗？\n\n卸载后将移到待安装列表，且不会自动重新安装。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -832,15 +974,25 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
             onPressed: () {
               // 从已安装列表移除
               context.read<AppState>().skillRegistry.unregister(skill.id);
+              
+              // 添加到已卸载列表（防止自动重新注册）
+              setState(() {
+                _uninstalledSkillIds.add(skill.id);
+              });
+              
               // 添加到待安装列表
               setState(() {
                 _pendingSkills.add(skill);
+                _selectedSkillId = null;
               });
-              setState(() => _selectedSkillId = null);
+              
               Navigator.pop(context);
+              
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('技能已卸载并移到待安装列表')),
               );
+              
+              _savePersistedData();
             },
             child: const Text('卸载'),
           ),
@@ -850,14 +1002,21 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
   }
 
   void _installSkill(Skill skill) {
+    // 注册技能
     context.read<AppState>().skillRegistry.register(skill);
+    
+    // 从已卸载列表移除
     setState(() {
+      _uninstalledSkillIds.remove(skill.id);
       _pendingSkills.removeWhere((s) => s.id == skill.id);
+      _selectedSkillId = null;
     });
-    setState(() => _selectedSkillId = null);
+    
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('技能 "${skill.id}" 已安装')),
     );
+    
+    _savePersistedData();
   }
 
   void _removePendingSkill(Skill skill) {
@@ -876,9 +1035,10 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
             onPressed: () {
               setState(() {
                 _pendingSkills.removeWhere((s) => s.id == skill.id);
+                _selectedSkillId = null;
               });
-              setState(() => _selectedSkillId = null);
               Navigator.pop(context);
+              _savePersistedData();
             },
             child: const Text('删除'),
           ),
