@@ -350,19 +350,41 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
 
           const SizedBox(height: 24),
 
-          // 基本信息
-          _buildSection('基本信息', [
-            _buildInfoRow('名称', skill.metadata.name),
-            _buildInfoRow('描述', skill.metadata.description),
-            if (skill.metadata.homepage != null)
-              _buildInfoRow('主页', skill.metadata.homepage!),
-            _buildInfoRow('路径', skill.path ?? '内置'),
-          ]),
-
-          const SizedBox(height: 24),
+          // 技能描述
+          if (skill.metadata.description.isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '描述',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    skill.metadata.description,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
 
           // SKILL.md 内容
-          _buildSection('SKILL.md 内容', [
+          _buildSection('SKILL.md 源文件', [
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
