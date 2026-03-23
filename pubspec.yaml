@@ -1,0 +1,51 @@
+name: little_zixia
+description: LittleZiXia - Personal AI Assistant Mobile Client
+version: 1.0.12+42
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  little_zixia_sdk:
+    path: ../openclaw_sdk
+  provider: ^6.1.1
+  shared_preferences: ^2.2.2
+  logger: ^2.0.2
+  url_launcher: ^6.2.2
+  intl: ^0.19.0
+  http: ^1.1.0
+  web_socket_channel: ^2.4.0
+  permission_handler: ^11.0.1
+  
+  # 多模态支持（稳定版本）
+  image_picker: ^1.0.7            # 图像和视频选择
+  file_picker: ^8.0.0+1           # 文件选择
+  path_provider: ^2.1.2
+  flutter_tts: ^4.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  flutter_launcher_icons: ^0.14.2
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/logo_zixia_extreme_white.jpg"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/logo_zixia_extreme_white.jpg"
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/config.json
+    - assets/logo_zixia_extreme_white.jpg
+    - assets/skills/weather/SKILL.md
+    - assets/skills/time/SKILL.md
+    - assets/skills/calculator/SKILL.md
+    - assets/skills/random/SKILL.md
+    - assets/skills/joke/SKILL.md
