@@ -3,6 +3,7 @@
 // 智能分解复杂任务为子任务，理解任务内在逻辑和依赖关系
 
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../llm/llm_base.dart';
 
@@ -262,79 +263,22 @@ class TaskDecomposer extends ChangeNotifier {
     }
   }
 
-  /// 简单的 JSON 解析
+  /// JSON 解析（使用 dart:convert）
   Map<String, dynamic>? _parseJson(String str) {
     try {
-      // 简单提取 JSON 对象
+      // 提取 JSON 对象
       final start = str.indexOf('{');
       final end = str.lastIndexOf('}');
       if (start == -1 || end == -1 || end <= start) return null;
 
       final jsonStr = str.substring(start, end + 1);
       
-      // 使用 dart:convert 的 json 解析
-      // 这里我们手动实现一个简化版本
-      return _simpleJsonDecode(jsonStr);
+      // 使用 dart:convert 的 json.decode
+      return json.decode(jsonStr) as Map<String, dynamic>;
     } catch (e) {
       debugPrint('[TaskDecomposer] JSON 解析失败: $e');
       return null;
     }
-  }
-
-  /// 简化的 JSON 解码
-  Map<String, dynamic> _simpleJsonDecode(String jsonStr) {
-    final result = <String, dynamic>{};
-    
-    // 这是一个非常简化的实现
-    // 实际应用中应该使用 dart:convert 的 json.decode
-    
-    // 提取 subtasks 数组
-    final subtasksMatch = RegExp(r'"subtasks"\s*:\s*\[([\s\S]*?)\]').firstMatch(jsonStr);
-    if (subtasksMatch != null) {
-      final subtasksStr = subtasksMatch.group(1)!;
-      final subtasks = <Map<String, dynamic>>[];
-      
-      // 提取每个子任务
-      final taskMatches = RegExp(r'\{[^{}]*"id"[^{}]*\}').allMatches(subtasksStr);
-      for (final match in taskMatches) {
-        final taskStr = match.group(0)!;
-        final task = <String, dynamic>{};
-        
-        // 提取 id
-        final idMatch = RegExp(r'"id"\s*:\s*"([^"]*)"').firstMatch(taskStr);
-        if (idMatch != null) {
-          task['id'] = idMatch.group(1);
-        }
-        
-        // 提取 description
-        final descMatch = RegExp(r'"description"\s*:\s*"([^"]*)"').firstMatch(taskStr);
-        if (descMatch != null) {
-          task['description'] = descMatch.group(1);
-        }
-        
-        // 提取 dependencies
-        final depsMatch = RegExp(r'"dependencies"\s*:\s*\[([^\]]*)\]').firstMatch(taskStr);
-        if (depsMatch != null) {
-          final depsStr = depsMatch.group(1)!;
-          final deps = RegExp(r'"([^"]*)"').allMatches(depsStr).map((m) => m.group(1)!).toList();
-          task['dependencies'] = deps;
-        }
-        
-        if (task.isNotEmpty) {
-          subtasks.add(task);
-        }
-      }
-      
-      result['subtasks'] = subtasks;
-    }
-    
-    // 提取 summary
-    final summaryMatch = RegExp(r'"summary"\s*:\s*"([^"]*)"').firstMatch(jsonStr);
-    if (summaryMatch != null) {
-      result['summary'] = summaryMatch.group(1);
-    }
-    
-    return result;
   }
 
   /// 标记子任务完成
