@@ -212,12 +212,11 @@ class EnhancedSkillManager extends ChangeNotifier {
       debugPrint('[EnhancedSkillManager] 开始从 ClawHub 同步...');
       
       int newCount = 0;
-      final clawhub = ClawHubService();
       
-      // 搜索技能
+      // 搜索技能（使用成员变量 _clawhubService，避免重复创建）
       final skills = query != null && query.isNotEmpty
-          ? await clawhub.search(query, limit: 20)
-          : await clawhub.getPopularSkills(limit: 30);
+          ? await _clawhubService.search(query, limit: 20)
+          : await _clawhubService.getPopularSkills(limit: 30);
       
       debugPrint('[EnhancedSkillManager] 获取到 ${skills.length} 个技能');
       
@@ -228,7 +227,7 @@ class EnhancedSkillManager extends ChangeNotifier {
         if (exists) continue;
         
         // 获取技能内容
-        final content = await clawhub.getSkillContent(clawSkill.slug);
+        final content = await _clawhubService.getSkillContent(clawSkill.slug);
         
         final skill = Skill(
           id: clawSkill.slug,
@@ -269,8 +268,7 @@ class EnhancedSkillManager extends ChangeNotifier {
   
   /// 搜索 ClawHub 技能
   Future<List<ClawHubSkill>> searchClawHub(String query) async {
-    final clawhub = ClawHubService();
-    return clawhub.search(query, limit: 20);
+    return _clawhubService.search(query, limit: 20);
   }
   
   /// 测试技能
@@ -283,11 +281,20 @@ class EnhancedSkillManager extends ChangeNotifier {
         params ?? {},
       );
       
-      // 检查结果
-      final success = !result.contains('失败') && 
-                      !result.contains('错误') && 
-                      !result.contains('Error') &&
-                      result.isNotEmpty;
+      // 改进的成功判断：检查是否包含明确的失败标志
+      final failurePatterns = [
+        RegExp(r'^Error:', multiLine: true),
+        RegExp(r'执行失败'),
+        RegExp(r'HTTP [45]\d{2}'),
+        RegExp(r'无法获取'),
+        RegExp(r'权限'),
+        RegExp(r'不支持'),
+        RegExp(r'SocketException'),
+        RegExp(r'TimeoutException'),
+      ];
+      
+      final hasFailure = failurePatterns.any((p) => p.hasMatch(result));
+      final success = result.isNotEmpty && !hasFailure;
       
       final index = _managedSkills.indexOf(managedSkill);
       if (index >= 0) {
@@ -310,7 +317,7 @@ class EnhancedSkillManager extends ChangeNotifier {
       if (index >= 0) {
         _managedSkills[index] = managedSkill.copyWith(
           status: SkillStatus.testFailed,
-          errorMessage: e.toString(),
+          errorMessage: _friendlyError(e.toString()),
           testedAt: DateTime.now(),
         );
         
@@ -471,5 +478,56 @@ class EnhancedSkillManager extends ChangeNotifier {
   /// 设置 Gateway 配置
   void setGatewayConfig(String url, {String? token}) {
     _clawhubService.setGateway(url, token: token);
+  }
+  
+  /// 友好化错误信息
+  String _friendlyError(String error) {
+    // 网络错误
+    if (error.contains('SocketException') || error.contains('Connection refused')) {
+      return '网络连接失败，请检查网络设置';
+    }
+    if (error.contains('TimeoutException') || error.contains('timed out')) {
+      return '请求超时，请稍后重试';
+    }
+    if (error.contains('Connection closed')) {
+      return '连接已断开，请重试';
+    }
+    
+    // HTTP 错误
+    if (error.contains('404')) {
+      return '资源不存在';
+    }
+    if (error.contains('401') || error.contains('403')) {
+      return '没有访问权限';
+    }
+    if (error.contains('500') || error.contains('502') || error.contains('503')) {
+      return '服务器暂时不可用，请稍后重试';
+    }
+    
+    // 权限错误
+    if (error.contains('Permission') || error.contains('权限')) {
+      return '缺少必要权限，请在设置中授权';
+    }
+    if (error.contains('Location')) {
+      return '无法获取位置，请授予位置权限';
+    }
+    
+    // 格式错误
+    if (error.contains('FormatException') || error.contains('JSON')) {
+      return '数据格式错误';
+    }
+    
+    // 默认：简化技术信息
+    // 去掉 Exception 类型前缀
+    final cleaned = error
+        .replaceFirst(RegExp(r'^[A-Z][a-zA-Z]+Exception:\s*'), '')
+        .replaceFirst(RegExp(r'^Exception:\s*'), '');
+    
+    // 如果还是太长，截断
+    if (cleaned.length > 50) {
+      return '${cleaned.substring(0, 50)}...';
+    }
+    
+    return cleaned.isEmpty ? '操作失败，请稍后重试' : cleaned;
   }
 }
