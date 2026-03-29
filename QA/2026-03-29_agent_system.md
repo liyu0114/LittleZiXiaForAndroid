@@ -219,15 +219,23 @@ class ToolResult {
 - 状态管理清晰
 
 ### 需要改进
-1. **P1** TaskDecomposer 未集成
-2. **P1** 自定义 JSON 解析器不稳定
-3. **P2** 缺少进度反馈
+1. **P1** TaskDecomposer 未集成 ~~✅ 已集成~~
+2. **P1** 自定义 JSON 解析器不稳定 ~~✅ 已替换为 dart:convert~~
+3. **P2** 缺少进度反馈 ⏳ 待优化
+
+### 修复记录
+
+**2026-03-29 14:15**
+
+1. **JSON 解析器** — 替换自定义解析器为 `dart:convert` 的 `json.decode`
+2. **TaskDecomposer 集成** — 添加 `ExecutionMode` 枚举，支持 `simple` 和 `planned` 模式
+3. **进度追踪改进** — 添加 `_progress` 和 `_progressMessage` 字段
 
 ### 建议优先级
-1. 替换 JSON 解析器（快速修复）
-2. 集成 TaskDecomposer（解锁复杂任务能力）
-3. 添加进度回调（改善用户体验）
+1. ~~替换 JSON 解析器（快速修复）~~ ✅ 已完成
+2. ~~集成 TaskDecomposer（解锁复杂任务能力）~~ ✅ 已完成
+3. 添加详细进度回调（改善用户体验）
 
 ---
 
-**下一步：** 修复 P1 问题后提交。
+**下一步：** 检测 UI 界面。
