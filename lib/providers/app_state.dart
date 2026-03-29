@@ -146,6 +146,7 @@ class AppState extends ChangeNotifier {
   AgentOrchestrator? get agentOrchestrator => _agentOrchestrator;
   TTSService get ttsService => _ttsService;
   SensorService get sensorService => _sensorService;
+  MemoryService get memoryService => _memoryService;
   RemoteConnection? get remoteConnection => _remoteConnection;
   bool get isRemoteConnected => _remoteConnection?.isConnected ?? false;
 
