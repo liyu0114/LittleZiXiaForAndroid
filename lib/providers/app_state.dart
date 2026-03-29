@@ -19,6 +19,8 @@ import '../services/skills/skill_summarizer.dart';
 import '../services/skills/skill_manager_new.dart';
 import '../services/agent/agent_orchestrator.dart';
 import '../services/remote/remote_connection.dart';
+import '../services/collaboration/multi_device_service.dart';
+import '../services/qrcode/qrcode_service.dart';
 import '../services/voice/tts_service.dart';
 import '../services/file/file_picker_service.dart';
 import '../services/conversation/topic_manager.dart';
@@ -123,6 +125,12 @@ class AppState extends ChangeNotifier {
   // 远程连接
   RemoteConnection? _remoteConnection;
 
+  // 多设备协作
+  MultiDeviceCollaborationService? _collabService;
+
+  // 二维码服务
+  QRCodeService? _qrcodeService;
+
   // 能力层
   CapabilityConfig _capabilityConfig = CapabilityConfig();
   late CapabilityManager _capabilityManager;
@@ -148,11 +156,19 @@ class AppState extends ChangeNotifier {
   SensorService get sensorService => _sensorService;
   MemoryService get memoryService => _memoryService;
   RemoteConnection? get remoteConnection => _remoteConnection;
+  MultiDeviceCollaborationService? get collabService => _collabService;
+  QRCodeService? get qrcodeService => _qrcodeService;
   bool get isRemoteConnected => _remoteConnection?.isConnected ?? false;
 
   /// 设置远程连接
   void setRemoteConnection(RemoteConnection? connection) {
     _remoteConnection = connection;
+    notifyListeners();
+  }
+
+  /// 设置多设备协作服务
+  void setCollabService(MultiDeviceCollaborationService? service) {
+    _collabService = service;
     notifyListeners();
   }
   CapabilityConfig get capabilityConfig => _capabilityConfig;
@@ -213,6 +229,15 @@ class AppState extends ChangeNotifier {
 
     // 初始化上下文管理
     _contextManager = ContextManager();
+
+    // 初始化多设备协作服务
+    _collabService = MultiDeviceCollaborationService();
+    _collabService!.initialize().then((_) {
+      debugPrint('[AppState] 多设备协作服务初始化完成');
+    });
+
+    // 初始化二维码服务
+    _qrcodeService = QRCodeService();
 
     // 异步加载 Skills 和 话题
     _initializeSkills();
