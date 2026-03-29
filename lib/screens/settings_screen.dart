@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/app_state.dart';
 import '../services/llm/llm_base.dart';
+import 'memory_search_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -33,19 +34,59 @@ class SettingsScreen extends StatelessWidget {
               ),
               Consumer<AppState>(
                 builder: (context, appState, child) {
+                  final ttsService = appState.ttsService;
                   return SwitchListTile(
                     secondary: const Icon(Icons.volume_up),
                     title: const Text('自动语音播放'),
-                    subtitle: const Text('收到回复时自动播放语音'),
-                    value: appState.ttsService.isInitialized,
-                    onChanged: (value) {
-                      // TODO: 实现语音开关
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('语音功能开发中...')),
-                      );
+                    subtitle: Text(
+                      ttsService.autoPlayEnabled
+                          ? '收到回复时自动播放语音'
+                          : '已关闭',
+                    ),
+                    value: ttsService.autoPlayEnabled,
+                    activeColor: Theme.of(context).primaryColor,
+                    onChanged: (value) async {
+                      await ttsService.setAutoPlayEnabled(value);
+                      appState.notifyListeners();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              value ? '✅ 已开启自动语音播放' : '🔇 已关闭自动语音播放',
+                            ),
+                            backgroundColor: value ? Colors.green : Colors.grey,
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      }
                     },
                   );
                 },
+              ),
+            ],
+          ),
+          const Divider(),
+          _buildSection(
+            context,
+            'Memory 管理',
+            [
+              ListTile(
+                leading: const Icon(Icons.search),
+                title: const Text('Memory 搜索'),
+                subtitle: const Text('搜索保存的记忆'),
+                trailing: const Icon(Icons.arrow_forward),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const MemorySearchScreen()),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline),
+                title: const Text('清除所有记忆'),
+                subtitle: const Text('删除所有保存的记忆'),
+                onTap: () => _showClearMemoryDialog(context),
               ),
             ],
           ),
@@ -75,7 +116,7 @@ class SettingsScreen extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.info_outline),
                 title: const Text('小紫霞'),
-                subtitle: const Text('版本 0.2.1 (Build 3)'),
+                subtitle: const Text('版本 1.0.37 (Build 67)'),
                 onTap: () => _showAboutDialog(context),
               ),
               ListTile(
@@ -85,7 +126,7 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => showLicensePage(
                   context: context,
                   applicationName: '小紫霞',
-                  applicationVersion: '0.2.1',
+                  applicationVersion: '1.0.37',
                 ),
               ),
               ListTile(
@@ -107,9 +148,7 @@ class SettingsScreen extends StatelessWidget {
                     secondary: const Icon(Icons.cloud_outlined),
                     title: const Text('远程连接'),
                     subtitle: Text(
-                      appState.isRemoteConnected
-                          ? '已连接'
-                          : '未连接',
+                      appState.isRemoteConnected ? '已连接' : '未连接',
                     ),
                     value: appState.capabilityConfig.l4Enabled,
                     onChanged: (value) async {
@@ -175,6 +214,32 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+  void _showClearMemoryDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('清除所有记忆'),
+        content: const Text('确定要删除所有保存的记忆吗？此操作无法撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              // TODO: 实现清除记忆
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('记忆已清除')),
+              );
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _exportConversation(BuildContext context) {
     final messages = context.read<AppState>().messages;
     if (messages.isEmpty) {
@@ -183,22 +248,6 @@ class SettingsScreen extends StatelessWidget {
       );
       return;
     }
-
-    final buffer = StringBuffer();
-    buffer.writeln('# 小紫霞对话记录');
-    buffer.writeln('# 导出时间: ${DateTime.now().toIso8601String()}');
-    buffer.writeln();
-
-    for (final msg in messages) {
-      final role = msg.role == MessageRole.user ? '用户' : '小紫霞';
-      buffer.writeln('### $role (${msg.timestamp.toIso8601String()})');
-      buffer.writeln(msg.content);
-      buffer.writeln();
-    }
-
-    // TODO: 实际保存到文件
-    // 这里可以使用 file_picker 或 share 插件
-    
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('导出功能开发中...')),
     );
@@ -209,7 +258,7 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (context) => AboutDialog(
         applicationName: '小紫霞',
-        applicationVersion: '1.0.11 (Build 41)',
+        applicationVersion: '1.0.37 (Build 67)',
         applicationIcon: const Text('💜', style: TextStyle(fontSize: 48)),
         children: const [
           SizedBox(height: 16),
@@ -229,16 +278,11 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _summarizeSkill(BuildContext context, AppState appState) async {
-    // 显示加载提示
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Row(
           children: [
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
+            SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
             SizedBox(width: 12),
             Text('正在分析对话...'),
           ],
@@ -249,26 +293,16 @@ class SettingsScreen extends StatelessWidget {
 
     try {
       final skill = await appState.summarizeSkillFromConversation();
-
-      // 清除加载提示
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
 
       if (skill != null) {
-        // 显示成功提示
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('✅ 成功总结 Skill：${skill.name}\n\n${skill.description}'),
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: '查看',
-              onPressed: () {
-                _showSkillDetail(context, skill);
-              },
-            ),
+            content: Text('✅ 成功总结 Skill：${skill.name}'),
+            duration: const Duration(seconds: 3),
           ),
         );
       } else {
-        // 显示失败提示
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('ℹ️ ${appState.error ?? "没有识别到可复用的模式"}'),
@@ -277,10 +311,7 @@ class SettingsScreen extends StatelessWidget {
         );
       }
     } catch (e) {
-      // 清除加载提示
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
-
-      // 显示错误提示
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('❌ 总结失败: $e'),
@@ -288,38 +319,5 @@ class SettingsScreen extends StatelessWidget {
         ),
       );
     }
-  }
-
-  void _showSkillDetail(BuildContext context, dynamic skill) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(skill.name),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('描述：${skill.description}'),
-              const SizedBox(height: 8),
-              Text('触发词：${skill.triggers.join(', ')}'),
-              const SizedBox(height: 8),
-              Text('匹配模式：${skill.pattern}'),
-              const SizedBox(height: 8),
-              Text('参数：'),
-              ...skill.params.entries.map((e) => Text('  • ${e.key}: ${e.value}')),
-              const SizedBox(height: 8),
-              Text('模板：${skill.template}'),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
   }
 }

@@ -4,6 +4,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import '../providers/app_state.dart';
 import '../services/skills/skill_system.dart';
 
@@ -27,6 +29,11 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
   
   // 已卸载的技能ID列表（持久化到本地，避免重新注册）
   List<String> _uninstalledSkillIds = [];
+  
+  // SkillHub 同步状态
+  bool _isSyncing = false;
+  String? _syncError;
+  int _syncedCount = 0;
 
   @override
   void initState() {
@@ -44,19 +51,126 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
     // TODO: 保存到 SharedPreferences
   }
 
+  /// 从 SkillHub 同步技能列表
+  Future<void> _syncFromSkillHub() async {
+    setState(() {
+      _isSyncing = true;
+      _syncError = null;
+    });
+
+    try {
+      // SkillHub API URL
+      const skillHubUrl = 'https://clawhub.com/api/skills';
+      
+      final response = await http.get(
+        Uri.parse(skillHubUrl),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        final List<dynamic> skillsJson = data['skills'] ?? [];
+        
+        int newCount = 0;
+        for (final skillJson in skillsJson) {
+          final skillId = skillJson['id'] as String?;
+          if (skillId == null) continue;
+          
+          // 检查是否已存在
+          final exists = _pendingSkills.any((s) => s.id == skillId);
+          if (!exists) {
+            final skill = Skill(
+              id: skillId,
+              metadata: SkillMetadata(
+                name: skillJson['name'] ?? skillId,
+                description: skillJson['description'] ?? '',
+              ),
+              body: skillJson['body'] ?? '',
+            );
+            _pendingSkills.add(skill);
+            newCount++;
+          }
+        }
+        
+        setState(() {
+          _isSyncing = false;
+          _syncedCount = newCount;
+        });
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ 同步成功，新增 $newCount 个技能'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        throw Exception('HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      setState(() {
+        _isSyncing = false;
+        _syncError = e.toString();
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ 同步失败: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, appState, child) {
+        // 检查技能是否已加载
+        if (!appState.skillRegistry.isLoaded) {
+          return const Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('正在加载技能...'),
+                ],
+              ),
+            ),
+          );
+        }
+
         // 过滤掉已卸载的技能
         final installedSkills = appState.skillRegistry.available
             .where((s) => !_uninstalledSkillIds.contains(s.id))
             .toList();
+
+        debugPrint('[SkillsScreen] Total skills: ${appState.skillRegistry.available.length}');
+        debugPrint('[SkillsScreen] Installed skills: ${installedSkills.length}');
+        debugPrint('[SkillsScreen] Uninstalled IDs: $_uninstalledSkillIds');
         
-        return Column(
-          children: [
-            // 标签栏
-            TabBar(
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('技能管理'),
+            actions: [
+              // SkillHub 同步按钮
+              IconButton(
+                icon: _isSyncing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.sync),
+                onPressed: _isSyncing ? null : _syncFromSkillHub,
+                tooltip: '从 SkillHub 同步',
+              ),
+            ],
+            bottom: TabBar(
               controller: _tabController,
               tabs: const [
                 Tab(text: '已安装'),
@@ -71,22 +185,18 @@ class _SkillsScreenState extends State<SkillsScreen> with SingleTickerProviderSt
                 });
               },
             ),
-            
-            // 内容区域
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  // 已安装技能
-                  _buildInstalledSkillsView(appState, installedSkills),
-                  // 待安装技能
-                  _buildPendingSkillsView(appState),
-                  // 总结技能
-                  _buildSummarizeView(appState),
-                ],
-              ),
-            ),
-          ],
+          ),
+          body: TabBarView(
+            controller: _tabController,
+            children: [
+              // 已安装技能
+              _buildInstalledSkillsView(appState, installedSkills),
+              // 待安装技能
+              _buildPendingSkillsView(appState),
+              // 总结技能
+              _buildSummarizeView(appState),
+            ],
+          ),
         );
       },
     );

@@ -9,10 +9,14 @@ import '../services/conversation/topic_manager.dart';
 import '../config/app_version.dart';
 import 'llm_config_screen.dart';
 import 'capability_screen.dart';
-import 'skills_screen.dart';
+import 'skills_screen_v2.dart';
+import 'skillhub_screen.dart';
+import 'skill_lifecycle_screen.dart';
+import 'twenty_four_game_screen.dart';  // 新增
 import 'settings_screen.dart';
 import 'gateway_dashboard.dart';
 import 'debug_screen.dart';
+import 'sensor_data_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -32,7 +36,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 7, vsync: this);
+    _tabController = TabController(length: 11, vsync: this);  // 改为 11 个 tab
   }
 
   Future<void> _sendMessage() async {
@@ -117,11 +121,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ),
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          labelColor: Theme.of(context).colorScheme.onSurface,
+          unselectedLabelColor: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+          labelStyle: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
           tabs: const [
             Tab(icon: Icon(Icons.chat), text: '对话'),
             Tab(icon: Icon(Icons.smart_toy), text: '模型'),
             Tab(icon: Icon(Icons.tune), text: '能力'),
             Tab(icon: Icon(Icons.extension), text: '技能'),
+            Tab(icon: Icon(Icons.cloud_download), text: 'SkillHub'),
+            Tab(icon: Icon(Icons.auto_fix_high), text: '生命周期'),  // 新增
+            Tab(icon: Icon(Icons.games), text: '游戏'),  // 新增
+            Tab(icon: Icon(Icons.sensors), text: '传感器'),
             Tab(icon: Icon(Icons.settings), text: '设置'),
             Tab(icon: Icon(Icons.cloud), text: 'Gateway'),
             Tab(icon: Icon(Icons.bug_report), text: '调试'),
@@ -166,7 +182,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               _buildChatTab(),
               const LLMConfigScreen(),
               const CapabilityScreen(),
-              const SkillsScreen(),
+              const SkillsScreenV2(),
+              const SkillHubScreen(),
+              const SkillLifecycleScreen(),
+              Container(child: Center(child: Text('生命周期管理界面开发中'))),  // 生命周期
+              const TwentyFourGameScreen(),  // 游戏
+              const SensorDataScreen(),
               const SettingsScreen(),
               const GatewayDashboard(),
               const DebugScreen(),

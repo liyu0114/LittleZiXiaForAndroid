@@ -8,16 +8,27 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logger/logger.dart';
 import 'package:http/http.dart' as http;
+import 'package:permission_handler/permission_handler.dart';
 import '../services/llm/llm_base.dart';
 import '../services/llm/llm_factory.dart';
 import '../services/capabilities/capability_manager.dart';
 import '../services/skills/skill_system.dart';
+import '../services/skills/skill_lifecycle.dart';  // 新增
 import '../services/skills/intent_recognizer.dart';
 import '../services/skills/skill_summarizer.dart';
+import '../services/skills/skill_manager_new.dart';
+import '../services/agent/agent_orchestrator.dart';
 import '../services/remote/remote_connection.dart';
 import '../services/voice/tts_service.dart';
 import '../services/file/file_picker_service.dart';
 import '../services/conversation/topic_manager.dart';
+import 'package:geolocator/geolocator.dart';
+import '../services/sensors/sensor_service.dart';
+import '../services/web/web_search_service.dart';
+import '../services/web/web_fetch_service.dart';
+import '../services/memory/memory_service.dart';
+import '../services/vision/image_analysis_service.dart';
+import '../services/context/context_manager.dart';
 import '../widgets/task_list.dart';
 
 /// 对话消息（UI 层使用）
@@ -77,10 +88,33 @@ class AppState extends ChangeNotifier {
 
   // Skill 系统
   late SkillManager _skillManager;
+  late EnhancedSkillManager _enhancedSkillManager;
   SkillSummarizer? _skillSummarizer;
+  late SkillLifecycleManager _lifecycleManager;  // 新增
+
+  // Agent 系统
+  AgentOrchestrator? _agentOrchestrator;
 
   // 语音合成（TTS）
   late TTSService _ttsService;
+
+  // 传感器服务
+  late SensorService _sensorService;
+
+  // 网页搜索服务
+  late WebSearchService _webSearchService;
+
+  // 焏页获取服务
+  late WebFetchService _webFetchService;
+
+  // Memory 服务
+  late MemoryService _memoryService;
+
+  // 上下文管理
+  late ContextManager _contextManager;
+
+  // 图像分析服务
+  ImageAnalysisService? _imageAnalysisService;
 
   // 自定义 Skills
   List<CustomSkill> _customSkills = [];
@@ -108,22 +142,76 @@ class AppState extends ChangeNotifier {
   List<ConversationMessage> get messages => List.unmodifiable(_messages);
   TopicManager get topicManager => _topicManager;
   SkillRegistry get skillRegistry => _skillManager.registry;
+  EnhancedSkillManager get enhancedSkillManager => _enhancedSkillManager;
+  AgentOrchestrator? get agentOrchestrator => _agentOrchestrator;
   TTSService get ttsService => _ttsService;
+  SensorService get sensorService => _sensorService;
   RemoteConnection? get remoteConnection => _remoteConnection;
   bool get isRemoteConnected => _remoteConnection?.isConnected ?? false;
+
+  /// 设置远程连接
+  void setRemoteConnection(RemoteConnection? connection) {
+    _remoteConnection = connection;
+    notifyListeners();
+  }
   CapabilityConfig get capabilityConfig => _capabilityConfig;
   CapabilityManager get capabilityManager => _capabilityManager;
   List<TaskInfo> get tasks => List.unmodifiable(_tasks);
   List<TaskInfo> get activeTasks => _tasks.where((t) => t.status == TaskStatus.running).toList();
   List<SessionInfo> get sessions => List.unmodifiable(_sessions);
+  SkillLifecycleManager get lifecycleManager => _lifecycleManager;  // 新增
+  
+  /// 从对话生成 Skill（老板要求的功能）
+  Future<SkillLifecycleItem?> generateSkillFromConversation(
+    String conversationContent,
+    String skillName,
+  ) async {
+    if (_llmProvider == null) {
+      _error = '请先配置大模型';
+      notifyListeners();
+      return null;
+    }
+
+    try {
+      final item = await _lifecycleManager.generateFromConversation(
+        conversationContent,
+        skillName,
+        _llmProvider!,
+      );
+      
+      if (item != null) {
+        notifyListeners();
+      }
+      
+      return item;
+    } catch (e) {
+      _error = '生成 Skill 失败: $e';
+      notifyListeners();
+      return null;
+    }
+  }
 
   AppState() {
     _capabilityManager = CapabilityManager(config: _capabilityConfig);
     _skillManager = SkillManager();
+    _enhancedSkillManager = EnhancedSkillManager();
     _topicManager = TopicManager();
 
     // 初始化 TTS
     _ttsService = TTSService();
+
+    // 初始化传感器服务
+    _sensorService = SensorService();
+
+    // 初始化网页服务
+    _webSearchService = WebSearchService();
+    _webFetchService = WebFetchService();
+
+    // 初始化 Memory 服务
+    _memoryService = MemoryService();
+
+    // 初始化上下文管理
+    _contextManager = ContextManager();
 
     // 异步加载 Skills 和 话题
     _initializeSkills();
@@ -135,6 +223,27 @@ class AppState extends ChangeNotifier {
   /// 初始化 Skills
   Future<void> _initializeSkills() async {
     await _skillManager.initialize();
+    await _enhancedSkillManager.initialize();
+    
+    // 初始化 Skill 生命周期管理器
+    _lifecycleManager = SkillLifecycleManager(_skillManager.registry);
+    await _lifecycleManager.initialize();
+    debugPrint('[AppState] Skill 生命周期管理器初始化完成');
+    
+    debugPrint('[AppState] Skills 初始化完成，skillRegistry.length = ${_skillManager.registry.length}');
+    
+    // 初始化 Agent 系统
+    if (_llmProvider != null) {
+      _agentOrchestrator = AgentOrchestrator();
+      _agentOrchestrator!.initialize(
+        llmProvider: _llmProvider!,
+        memoryService: _memoryService,
+        skillManager: _skillManager,
+        lifecycleManager: _lifecycleManager,  // 新增
+      );
+      debugPrint('[AppState] Agent 系统初始化完成');
+    }
+    
     notifyListeners();
   }
 
@@ -323,6 +432,11 @@ class AppState extends ChangeNotifier {
     );
     _messages.add(userMsg);
     
+    // 同时添加到话题管理器
+    if (_topicManager.currentTopic != null) {
+      _topicManager.currentTopic!.addMessage(ChatMessage.user(content));
+    }
+    
     // 构建 LLM 消息
     String llmContent = content;
     if (imagePath != null) {
@@ -443,6 +557,13 @@ class AppState extends ChangeNotifier {
       }
 
       _llmMessages.add(ChatMessage.assistant(buffer.toString()));
+      
+      // 同时添加到话题管理器
+      if (_topicManager.currentTopic != null) {
+        _topicManager.currentTopic!.addMessage(ChatMessage.assistant(buffer.toString()));
+        _topicManager.save(); // 保存话题
+      }
+      
       await _saveConversationHistory();
     } catch (e) {
       _logger.e('生成回复失败: $e');
@@ -463,57 +584,85 @@ class AppState extends ChangeNotifier {
       print('[DEBUG] Skill ID: $skillId');
       print('[DEBUG] 参数: $params');
       
+      // 1. 先尝试从 SkillManager 获取技能（动态加载的）
+      final skill = _skillManager.registry.get(skillId);
+      if (skill != null) {
+        print('[DEBUG] ✓ 从 SkillManager 找到技能: ${skill.metadata.name}');
+        final result = await _skillManager.executeSkill(skill, params);
+        print('[DEBUG] Skill 执行结果: $result');
+        return result;
+      }
+      
+      print('[DEBUG] SkillManager 中没有找到技能，回退到内置实现');
+      
+      // 2. 回退到内置实现（兼容旧版本）
       String? result;
       
       switch (skillId) {
         case 'weather':
-          print('[DEBUG] 执行天气 Skill');
+          print('[DEBUG] 执行天气 Skill (内置)');
           result = await _executeWeatherSkill(params);
           break;
         
         case 'time':
-          print('[DEBUG] 执行时间 Skill');
+          print('[DEBUG] 执行时间 Skill (内置)');
           result = await _executeTimeSkill(params);
           break;
         
         case 'translate':
-          print('[DEBUG] 执行翻译 Skill');
+          print('[DEBUG] 执行翻译 Skill (内置)');
           result = await _executeTranslateSkill(params);
           break;
         
         case 'web_search':
-          print('[DEBUG] 执行搜索 Skill');
+          print('[DEBUG] 执行搜索 Skill (内置)');
           result = await _executeWebSearchSkill(params);
           break;
         
         case 'calculator':
-          print('[DEBUG] 执行计算器 Skill');
+          print('[DEBUG] 执行计算器 Skill (内置)');
           result = await _executeCalculatorSkill(params);
           break;
         
         case 'reminder':
-          print('[DEBUG] 执行提醒 Skill');
+          print('[DEBUG] 执行提醒 Skill (内置)');
           result = await _executeReminderSkill(params);
           break;
         
         case 'timer':
-          print('[DEBUG] 执行倒计时 Skill');
+          print('[DEBUG] 执行倒计时 Skill (内置)');
           result = await _executeTimerSkill(params);
           break;
         
         case 'random':
-          print('[DEBUG] 执行随机数 Skill');
+          print('[DEBUG] 执行随机数 Skill (内置)');
           result = await _executeRandomSkill(params);
           break;
         
         case 'joke':
-          print('[DEBUG] 执行笑话 Skill');
+          print('[DEBUG] 执行笑话 Skill (内置)');
           result = await _executeJokeSkill(params);
+          break;
+        
+        case 'location':
+        case 'current_location':
+          print('[DEBUG] 执行位置 Skill (内置)');
+          result = await _executeLocationSkill(params);
+          break;
+        
+        case 'web_search':
+          print('[DEBUG] 执行网页搜索 Skill (内置)');
+          result = await _executeWebSearchSkill(params);
+          break;
+        
+        case 'web_fetch':
+          print('[DEBUG] 执行网页获取 Skill (内置)');
+          result = await _executeWebFetchSkill(params);
           break;
         
         default:
           print('[DEBUG] ⚠️ 未知 Skill: $skillId');
-          return '⚠️ 未知的 Skill: $skillId';
+          return '⚠️ 未知的 Skill: $skillId。请先在"技能"页面安装此技能。';
       }
       
       print('[DEBUG] Skill 执行成功');
@@ -612,41 +761,41 @@ class AppState extends ChangeNotifier {
     final query = params['query']?.toString();
     
     if (query == null || query.isEmpty) {
-      return '请告诉我要搜索什么';
+      return '🔍 请告诉我要搜索什么';
     }
 
     print('[DEBUG] 执行搜索: $query');
 
-    // 如果没有配置 LLM，返回提示
-    if (_llmProvider == null) {
-      return '🔍 搜索功能需要配置大模型\n\n请先在"模型"标签页配置大模型。';
-    }
-
     try {
-      // 使用 LLM 直接回答（更可靠）
-      final messages = [
-        ChatMessage.system('你是一个知识渊博的助手。请回答用户的问题，提供准确、详细的信息。'),
-        ChatMessage.user(query),
-      ];
-
-      final stream = _llmProvider!.chatStream(messages);
-      final buffer = StringBuffer();
-
-      await for (final event in stream) {
-        if (event.done || event.error != null) break;
-        if (event.delta != null) buffer.write(event.delta);
-      }
-
-      final result = buffer.toString().trim();
+      // 使用 WebSearchService 进行搜索
+      final results = await _webSearchService.search(query, count: 5);
       
-      if (result.isNotEmpty) {
-        return '🔍 关于"$query"：\n\n$result';
-      } else {
-        return '抱歉，我没有找到相关信息。';
+      if (results.isEmpty) {
+        return '🔍 没有找到与"$query"相关的结果';
       }
+      
+      return _webSearchService.formatResults(results, query: query);
     } catch (e) {
       print('[DEBUG] 搜索出错: $e');
-      return '搜索失败: $e\n\n请检查网络连接或稍后重试。';
+      return '🔍 搜索失败: $e\n\n请检查网络连接或稍后重试。';
+    }
+  }
+
+  /// 网页获取 Skill
+  Future<String> _executeWebFetchSkill(Map<String, dynamic> params) async {
+    final url = params['url']?.toString();
+    final maxChars = params['max_chars'] as int? ?? 5000;
+    
+    if (url == null || url.isEmpty) {
+      return '📄 请提供要获取的网页 URL';
+    }
+    
+    print('[DEBUG] 获取网页: $url');
+    
+    try {
+      return await _webFetchService.fetch(url, maxChars: maxChars);
+    } catch (e) {
+      return '📄 获取网页失败: $e';
     }
   }
 
@@ -1157,5 +1306,130 @@ class AppState extends ChangeNotifier {
     
     final index = DateTime.now().millisecondsSinceEpoch % jokes.length;
     return '😄 ${jokes[index]}';
+  }
+
+  /// 位置 Skill
+  Future<String> _executeLocationSkill(Map<String, dynamic> params) async {
+    print('[DEBUG] 获取位置信息...');
+    
+    try {
+      // 检查位置服务是否启用
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        return '📍 位置服务未开启\n\n请在手机设置中开启位置服务（GPS）';
+      }
+
+      // 检查权限
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          return '📍 位置权限被拒绝\n\n请在手机设置中授予小紫霞位置权限';
+        }
+      }
+      
+      if (permission == LocationPermission.deniedForever) {
+        return '📍 位置权限被永久拒绝\n\n请在手机设置中手动授予小紫霞位置权限';
+      }
+
+      // 获取当前位置
+      print('[DEBUG] 正在获取位置...');
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 30),
+      );
+      
+      print('[DEBUG] 位置获取成功: ${position.latitude}, ${position.longitude}');
+      
+      // 构建位置信息
+      final buffer = StringBuffer();
+      buffer.writeln('📍 当前位置信息');
+      buffer.writeln('');
+      buffer.writeln('纬度: ${position.latitude.toStringAsFixed(6)}°');
+      buffer.writeln('经度: ${position.longitude.toStringAsFixed(6)}°');
+      
+      if (position.altitude != 0) {
+        buffer.writeln('海拔: ${position.altitude.toStringAsFixed(2)} 米');
+      }
+      
+      buffer.writeln('精度: ${position.accuracy.toStringAsFixed(2)} 米');
+      
+      if (position.speed > 0) {
+        buffer.writeln('速度: ${(position.speed * 3.6).toStringAsFixed(2)} km/h');
+      }
+      
+      if (position.heading != 0) {
+        buffer.writeln('方向: ${position.heading.toStringAsFixed(2)}°');
+      }
+      
+      return buffer.toString().trim();
+      
+    } on TimeoutException {
+      return '📍 获取位置超时\n\n请确保在开阔区域，GPS 信号良好';
+    } catch (e) {
+      print('[DEBUG] 获取位置失败: $e');
+      return '📍 获取位置失败\n\n错误: $e';
+    }
+  }
+
+  // ==================== 权限管理 ====================
+
+  /// 检查是否拥有所有必要权限
+  Future<bool> hasAllPermissions() async {
+    try {
+      final permissions = [
+        Permission.location,
+        Permission.camera,
+        Permission.microphone,
+        Permission.storage,
+        Permission.notification,
+      ];
+
+      for (final permission in permissions) {
+        final status = await permission.status;
+        if (!status.isGranted) {
+          return false;
+        }
+      }
+
+      return true;
+    } catch (e) {
+      print('[DEBUG] 检查权限失败: $e');
+      return false;
+    }
+  }
+
+  /// 请求所有必要权限
+  Future<Map<Permission, PermissionStatus>> requestPermissions() async {
+    final results = <Permission, PermissionStatus>{};
+
+    try {
+      final permissions = [
+        Permission.location,
+        Permission.camera,
+        Permission.microphone,
+        Permission.storage,
+        Permission.notification,
+      ];
+
+      for (final permission in permissions) {
+        final status = await permission.request();
+        results[permission] = status;
+        print('[DEBUG] 权限 ${permission.toString()}: $status');
+      }
+    } catch (e) {
+      print('[DEBUG] 请求权限失败: $e');
+    }
+
+    return results;
+  }
+
+  /// 打开应用设置页面
+  Future<void> openPermissionSettings() async {
+    try {
+      await openAppSettings();
+    } catch (e) {
+      print('[DEBUG] 打开设置失败: $e');
+    }
   }
 }

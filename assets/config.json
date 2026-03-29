@@ -3,5 +3,7 @@
   "api_version": "v1",
   "websocket_path": "/ws",
   "timeout_seconds": 30,
-  "reconnect_interval_seconds": 5
+  "reconnect_interval_seconds": 5,
+  "default_gateway_url": "http://100.80.206.8:18789",
+  "default_token": "6374a3974149286117d8df733c6f20dfd7d8bed73aa9de7c"
 }

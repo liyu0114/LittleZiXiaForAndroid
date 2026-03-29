@@ -4,23 +4,27 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class TTSService extends ChangeNotifier {
   final FlutterTts _flutterTts = FlutterTts();
   bool _isInitialized = false;
   bool _isSpeaking = false;
+  bool _autoPlayEnabled = false;  // 自动语音播放开关
   double _volume = 1.0;
   double _pitch = 1.0;
   double _rate = 0.5;  // 语速（0.0-1.0）
 
   bool get isInitialized => _isInitialized;
   bool get isSpeaking => _isSpeaking;
+  bool get autoPlayEnabled => _autoPlayEnabled;
   double get volume => _volume;
   double get pitch => _pitch;
   double get rate => _rate;
 
   TTSService() {
     _init();
+    _loadAutoPlaySetting();
   }
 
   Future<void> _init() async {
@@ -73,8 +77,64 @@ class TTSService extends ChangeNotifier {
     }
   }
 
-  /// 播放语音
+  /// 加载自动播放设置
+  Future<void> _loadAutoPlaySetting() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _autoPlayEnabled = prefs.getBool('auto_play_voice') ?? false;
+      notifyListeners();
+      debugPrint('[TTS] 自动播放: $_autoPlayEnabled');
+    } catch (e) {
+      debugPrint('[TTS] 加载自动播放设置失败: $e');
+    }
+  }
+
+  /// 设置自动播放
+  Future<void> setAutoPlayEnabled(bool enabled) async {
+    _autoPlayEnabled = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('auto_play_voice', enabled);
+      notifyListeners();
+      debugPrint('[TTS] 自动播放已${enabled ? "开启" : "关闭"}');
+    } catch (e) {
+      debugPrint('[TTS] 保存自动播放设置失败: $e');
+    }
+  }
+
+  /// 播放语音（检查自动播放开关）
   Future<void> speak(String text) async {
+    if (!_isInitialized) {
+      debugPrint('[TTS] 未初始化');
+      return;
+    }
+
+    // 如果自动播放关闭，不播放
+    if (!_autoPlayEnabled) {
+      debugPrint('[TTS] 自动播放已关闭');
+      return;
+    }
+
+    if (text.trim().isEmpty) {
+      debugPrint('[TTS] 文本为空');
+      return;
+    }
+
+    try {
+      // 如果正在播放，先停止
+      if (_isSpeaking) {
+        await stop();
+      }
+
+      debugPrint('[TTS] 播放: $text');
+      await _flutterTts.speak(text);
+    } catch (e) {
+      debugPrint('[TTS] 播放失败: $e');
+    }
+  }
+
+  /// 强制播放语音（忽略自动播放开关）
+  Future<void> forceSpeak(String text) async {
     if (!_isInitialized) {
       debugPrint('[TTS] 未初始化');
       return;
@@ -91,7 +151,7 @@ class TTSService extends ChangeNotifier {
         await stop();
       }
 
-      debugPrint('[TTS] 播放: $text');
+      debugPrint('[TTS] 强制播放: $text');
       await _flutterTts.speak(text);
     } catch (e) {
       debugPrint('[TTS] 播放失败: $e');

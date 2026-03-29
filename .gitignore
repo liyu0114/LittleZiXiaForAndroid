@@ -43,3 +43,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# 签名配置（包含密码）
+/android/key.properties
+*.jks
+*.keystore

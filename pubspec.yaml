@@ -1,6 +1,6 @@
 name: little_zixia
 description: LittleZiXia - Personal AI Assistant Mobile Client
-version: 1.0.17+47
+version: 1.0.42+70
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -24,6 +24,40 @@ dependencies:
   file_picker: ^8.0.0+1           # 文件选择
   path_provider: ^2.1.2
   flutter_tts: ^4.0.2
+  
+  # L2 增强模式
+  geolocator: ^13.0.2             # 位置服务
+  flutter_local_notifications: ^17.2.4  # 本地通知
+  speech_to_text: ^7.0.0         # 语音识别
+  local_auth: ^2.3.0             # 生物识别
+  
+  # 硬件服务
+  battery_plus: ^6.0.3            # 电池状态
+  connectivity_plus: ^6.0.5       # 网络状态
+  screen_brightness: ^2.1.0      # 屏幕亮度
+  volume_controller: ^2.0.7      # 音量控制
+  sensors_plus: ^6.0.1           # 传感器
+  
+  # 健康与活动
+  pedometer: ^4.0.2              # 步数计数
+  # activity_recognition_flutter: ^4.0.2  # 活动识别（有兼容性问题）
+  # light: ^3.0.1                # 环境光线（有兼容性问题）
+  flutter_compass: ^0.8.0        # 指南针
+  
+  # 创新功能
+  flutter_blue_plus: ^1.32.12    # 蓝牙扫描
+  flutter_nfc_kit: ^3.5.2        # NFC 读取
+  qr_flutter: ^4.1.0             # 二维码生成
+  mobile_scanner: ^6.0.2         # 二维码扫描
+  
+  # L3 系统模式
+  process_run: ^1.2.2             # Shell 命令执行
+  
+  # Markdown 编辑增强
+  highlight: ^0.7.0               # 代码语法高亮
+  flutter_markdown: ^0.6.14       # Markdown 渲染
+  markdown: ^7.0.0                # Markdown 解析
+  share_plus: ^10.0.0             # 系统分享
 
 dev_dependencies:
   flutter_test:
@@ -44,8 +78,59 @@ flutter:
   assets:
     - assets/config.json
     - assets/logo_zixia_extreme_white.jpg
+    # L1 基础技能
     - assets/skills/weather/SKILL.md
     - assets/skills/time/SKILL.md
     - assets/skills/calculator/SKILL.md
     - assets/skills/random/SKILL.md
     - assets/skills/joke/SKILL.md
+    - assets/skills/web_search/SKILL.md
+    - assets/skills/translate/SKILL.md
+    # L2 增强技能
+    - assets/skills/camera/SKILL.md
+    - assets/skills/photo_library/SKILL.md
+    - assets/skills/location/SKILL.md
+    - assets/skills/notification/SKILL.md
+    - assets/skills/nearby_search/SKILL.md
+    - assets/skills/reminder/SKILL.md
+    - assets/skills/unit_converter/SKILL.md
+    - assets/skills/currency_converter/SKILL.md
+    - assets/skills/greeting/SKILL.md
+    - assets/skills/quick_note/SKILL.md
+    - assets/skills/holiday/SKILL.md
+    # 位置相关技能
+    - assets/skills/local_weather/SKILL.md
+    - assets/skills/current_location/SKILL.md
+    - assets/skills/nearby_restaurants/SKILL.md
+    - assets/skills/nearby_gas_stations/SKILL.md
+    - assets/skills/nearby_hospitals/SKILL.md
+    - assets/skills/distance_to/SKILL.md
+    # 移动端特有技能（传感器/硬件）
+    - assets/skills/shake_detection/SKILL.md
+    - assets/skills/step_counter/SKILL.md
+    - assets/skills/ambient_light/SKILL.md
+    - assets/skills/compass/SKILL.md
+    - assets/skills/altitude/SKILL.md
+    - assets/skills/nfc_reader/SKILL.md
+    - assets/skills/bluetooth_scanner/SKILL.md
+    - assets/skills/screen_control/SKILL.md
+    - assets/skills/volume_control/SKILL.md
+    - assets/skills/motion_detection/SKILL.md
+    - assets/skills/battery/SKILL.md
+    - assets/skills/network_status/SKILL.md
+    - assets/skills/haptic_feedback/SKILL.md
+    - assets/skills/voice_wake/SKILL.md
+    - assets/skills/biometric_auth/SKILL.md
+    - assets/skills/brightness_control/SKILL.md
+    - assets/skills/orientation_control/SKILL.md
+    - assets/skills/sensor_reader/SKILL.md
+    # L3 系统技能
+    - assets/skills/shell/SKILL.md
+    - assets/skills/screenshot/SKILL.md
+    - assets/skills/battery_status/SKILL.md
+    - assets/skills/flashlight/SKILL.md
+    - assets/skills/qr_code/SKILL.md
+    - assets/skills/voice_input/SKILL.md
+    - assets/skills/sensor_data/SKILL.md
+    # L4 远程技能
+    - assets/skills/remote_command/SKILL.md

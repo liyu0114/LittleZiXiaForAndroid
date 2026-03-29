@@ -89,15 +89,31 @@ class _GatewayDashboardState extends State<GatewayDashboard> {
                             color: Colors.grey.shade600,
                           ),
                         ),
+                      if (config.l4RemoteUrl == null && !isConnected)
+                        Text(
+                          '未配置 Gateway URL',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.orange.shade700,
+                          ),
+                        ),
                     ],
                   ),
                 ),
-                if (!isConnected)
-                  ElevatedButton.icon(
-                    onPressed: () => appState.connectRemote(),
-                    icon: const Icon(Icons.refresh, size: 18),
-                    label: const Text('连接'),
-                  ),
+                if (!isConnected) ...[
+                  if (config.l4RemoteUrl == null)
+                    ElevatedButton.icon(
+                      onPressed: () => _showConfigDialog(appState),
+                      icon: const Icon(Icons.settings, size: 18),
+                      label: const Text('配置'),
+                    )
+                  else
+                    ElevatedButton.icon(
+                      onPressed: () => appState.connectRemote(),
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('连接'),
+                    ),
+                ],
               ],
             ),
             if (appState.remoteConnection?.error != null) ...[
@@ -124,6 +140,67 @@ class _GatewayDashboardState extends State<GatewayDashboard> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// 显示配置对话框
+  void _showConfigDialog(AppState appState) {
+    final urlController = TextEditingController();
+    final tokenController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('配置 Gateway'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: urlController,
+              decoration: const InputDecoration(
+                labelText: 'Gateway URL',
+                hintText: 'ws://localhost:8765',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: tokenController,
+              decoration: const InputDecoration(
+                labelText: 'Token (可选)',
+                border: OutlineInputBorder(),
+              ),
+              obscureText: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final url = urlController.text.trim();
+              if (url.isNotEmpty) {
+                // 保存配置
+                appState.updateCapabilityConfig(
+                  appState.capabilityConfig.copyWith(
+                    l4RemoteUrl: url,
+                    l4RemoteToken: tokenController.text.trim().isEmpty 
+                        ? null 
+                        : tokenController.text.trim(),
+                  ),
+                );
+                Navigator.pop(context);
+                // 尝试连接
+                appState.connectRemote();
+              }
+            },
+            child: const Text('保存并连接'),
+          ),
+        ],
       ),
     );
   }

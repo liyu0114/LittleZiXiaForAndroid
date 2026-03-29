@@ -48,6 +48,16 @@ class IntentRecognizer {
       'description': '查询指定城市的天气情况',
       'params': 'location (城市名)',
     },
+    'location': {
+      'name': '位置查询',
+      'description': '获取当前位置信息（经纬度、海拔等）',
+      'params': '无',
+    },
+    'current_location': {
+      'name': '当前位置',
+      'description': '获取当前所在位置',
+      'params': '无',
+    },
     'translate': {
       'name': '翻译',
       'description': '将文本翻译成目标语言',
@@ -57,6 +67,11 @@ class IntentRecognizer {
       'name': '网页搜索',
       'description': '在网络上搜索信息',
       'params': 'query (搜索关键词)',
+    },
+    'web_fetch': {
+      'name': '网页获取',
+      'description': '获取指定网页的内容',
+      'params': 'url (网页地址), max_chars (最大字符数，可选)',
     },
     'calculator': {
       'name': '计算器',
@@ -77,6 +92,16 @@ class IntentRecognizer {
       'name': '倒计时',
       'description': '设置倒计时',
       'params': 'duration (时长，如 5分钟、10秒)',
+    },
+    'random': {
+      'name': '随机数',
+      'description': '生成随机数',
+      'params': 'min (最小值), max (最大值)',
+    },
+    'joke': {
+      'name': '笑话',
+      'description': '讲一个笑话',
+      'params': '无',
     },
   };
 
@@ -277,6 +302,63 @@ $skillsDescription
         params: {},
         confidence: 0.95,
       );
+    }
+
+    // 位置
+    if (lowerMessage.contains('我在哪') ||
+        lowerMessage.contains('我现在在哪') ||
+        lowerMessage.contains('当前位置') ||
+        lowerMessage.contains('我的位置') ||
+        lowerMessage.contains('获取位置') ||
+        lowerMessage.contains('查一下位置') ||
+        lowerMessage.contains('定位')) {
+      return IntentResult(
+        skillId: 'location',
+        params: {},
+        confidence: 0.9,
+      );
+    }
+
+    // 随机数
+    if (lowerMessage.contains('随机') ||
+        lowerMessage.contains('roll') ||
+        lowerMessage.contains('掷骰子')) {
+      final match = RegExp(r'(\d+)-(\d+)').firstMatch(userMessage);
+      return IntentResult(
+        skillId: 'random',
+        params: match != null
+            ? {'min': int.parse(match.group(1)!), 'max': int.parse(match.group(2)!)}
+            : {'min': 1, 'max': 100},
+        confidence: 0.9,
+      );
+    }
+
+    // 笑话
+    if (lowerMessage.contains('笑话') ||
+        lowerMessage.contains('讲个') && lowerMessage.contains('笑话') ||
+        lowerMessage.contains('joke')) {
+      return IntentResult(
+        skillId: 'joke',
+        params: {},
+        confidence: 0.9,
+      );
+    }
+
+    // 网页获取
+    if (lowerMessage.contains('获取网页') ||
+        lowerMessage.contains('抓取网页') ||
+        lowerMessage.contains('读取网页') ||
+        lowerMessage.contains('打开链接') ||
+        lowerMessage.contains('访问') && lowerMessage.contains('http')) {
+      // 提取 URL
+      final urlMatch = RegExp(r'https?://[^\s]+').firstMatch(userMessage);
+      if (urlMatch != null) {
+        return IntentResult(
+          skillId: 'web_fetch',
+          params: {'url': urlMatch.group(0)},
+          confidence: 0.9,
+        );
+      }
     }
 
     // 没有匹配

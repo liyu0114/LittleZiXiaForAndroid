@@ -154,6 +154,120 @@ class RemoteConnection {
     }
   }
 
+  /// 执行远程技能
+  Future<String> executeRemoteSkill(String skillId, Map<String, dynamic> params) async {
+    if (!isConnected) {
+      return '❌ 未连接到 Gateway';
+    }
+
+    try {
+      final response = await _httpClient.post(
+        Uri.parse('$url/skill/$skillId/execute'),
+        headers: _headers,
+        body: jsonEncode({'params': params}),
+      ).timeout(const Duration(seconds: 60));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['result'] ?? '执行成功';
+      }
+      return '❌ 技能执行失败';
+    } catch (e) {
+      return '❌ 执行远程技能失败: $e';
+    }
+  }
+
+  /// 远程搜索（使用 Gateway 的 web_search）
+  Future<String> remoteWebSearch(String query, {int count = 5}) async {
+    if (!isConnected) {
+      return '❌ 未连接到 Gateway';
+    }
+
+    try {
+      final response = await _httpClient.post(
+        Uri.parse('$url/web_search'),
+        headers: _headers,
+        body: jsonEncode({
+          'query': query,
+          'count': count,
+        }),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final results = data['results'] as List?;
+        if (results == null || results.isEmpty) {
+          return '🔍 没有找到相关结果';
+        }
+
+        final buffer = StringBuffer();
+        buffer.writeln('🔍 搜索结果（通过 Gateway）：');
+        for (int i = 0; i < results.length; i++) {
+          final result = results[i];
+          buffer.writeln('${i + 1}. ${result['title'] ?? ''}');
+          buffer.writeln('   ${result['snippet'] ?? result['description'] ?? ''}');
+          buffer.writeln('   🔗 ${result['link'] ?? result['url'] ?? ''}');
+        }
+        return buffer.toString();
+      }
+      return '❌ 搜索失败';
+    } catch (e) {
+      return '❌ 远程搜索失败: $e';
+    }
+  }
+
+  /// 远程获取网页（使用 Gateway 的 web_fetch）
+  Future<String> remoteWebFetch(String url, {int maxChars = 5000}) async {
+    if (!isConnected) {
+      return '❌ 未连接到 Gateway';
+    }
+
+    try {
+      final response = await _httpClient.post(
+        Uri.parse('$this.url/web_fetch'),
+        headers: _headers,
+        body: jsonEncode({
+          'url': url,
+          'maxChars': maxChars,
+        }),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['content'] ?? '无法获取内容';
+      }
+      return '❌ 获取失败';
+    } catch (e) {
+      return '❌ 远程获取失败: $e';
+    }
+  }
+
+  /// 执行远程命令（通过 Gateway exec）
+  Future<String> remoteExec(String command, {List<String>? args, Duration? timeout}) async {
+    if (!isConnected) {
+      return '❌ 未连接到 Gateway';
+    }
+
+    try {
+      final response = await _httpClient.post(
+        Uri.parse('$url/exec'),
+        headers: _headers,
+        body: jsonEncode({
+          'command': command,
+          'args': args ?? [],
+        }),
+      ).timeout(timeout ?? const Duration(seconds: 60));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['stdout'] ?? data['output'] ?? '执行成功';
+      }
+      return '❌ 層令执行失败: ${response.body}';
+    } catch (e) {
+      return '❌ 执行远程命令失败: $e';
+    }
+  }
+
   /// 断开连接
   void disconnect() {
     _wsChannel?.sink.close();
