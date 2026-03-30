@@ -13,13 +13,12 @@ import '../services/llm/llm_base.dart';
 import '../services/llm/llm_factory.dart';
 import '../services/capabilities/capability_manager.dart';
 import '../services/skills/skill_system.dart';
-import '../services/skills/skill_lifecycle.dart';  // 新增
+import '../services/skills/skill_lifecycle.dart' hide LLMProvider;  // 避免与 llm_base.dart 冲突
 import '../services/skills/intent_recognizer.dart';
 import '../services/skills/skill_summarizer.dart';
 import '../services/skills/skill_manager_new.dart';
 import '../services/agent/agent_orchestrator.dart';
 import '../services/remote/remote_connection.dart';
-import '../services/collaboration/multi_device_service.dart';
 import '../services/qrcode/qrcode_service.dart';
 import '../services/voice/tts_service.dart';
 import '../services/file/file_picker_service.dart';
@@ -125,9 +124,6 @@ class AppState extends ChangeNotifier {
   // 远程连接
   RemoteConnection? _remoteConnection;
 
-  // 多设备协作
-  MultiDeviceCollaborationService? _collabService;
-
   // 二维码服务
   QRCodeService? _qrcodeService;
 
@@ -156,7 +152,6 @@ class AppState extends ChangeNotifier {
   SensorService get sensorService => _sensorService;
   MemoryService get memoryService => _memoryService;
   RemoteConnection? get remoteConnection => _remoteConnection;
-  MultiDeviceCollaborationService? get collabService => _collabService;
   QRCodeService? get qrcodeService => _qrcodeService;
   bool get isRemoteConnected => _remoteConnection?.isConnected ?? false;
 
@@ -166,11 +161,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 设置多设备协作服务
-  void setCollabService(MultiDeviceCollaborationService? service) {
-    _collabService = service;
-    notifyListeners();
-  }
   CapabilityConfig get capabilityConfig => _capabilityConfig;
   CapabilityManager get capabilityManager => _capabilityManager;
   List<TaskInfo> get tasks => List.unmodifiable(_tasks);
@@ -190,10 +180,17 @@ class AppState extends ChangeNotifier {
     }
 
     try {
+      // 创建简化的聊天回调函数
+      Future<String> chatCallback(String prompt) async {
+        final messages = [ChatMessage(role: MessageRole.user, content: prompt)];
+        final response = await _llmProvider!.chat(messages);
+        return response.content;
+      }
+      
       final item = await _lifecycleManager.generateFromConversation(
         conversationContent,
         skillName,
-        _llmProvider!,
+        chatCallback,
       );
       
       if (item != null) {
@@ -230,12 +227,6 @@ class AppState extends ChangeNotifier {
     // 初始化上下文管理
     _contextManager = ContextManager();
 
-    // 初始化多设备协作服务
-    _collabService = MultiDeviceCollaborationService();
-    _collabService!.initialize().then((_) {
-      debugPrint('[AppState] 多设备协作服务初始化完成');
-    });
-
     // 初始化二维码服务
     _qrcodeService = QRCodeService();
 
@@ -265,7 +256,6 @@ class AppState extends ChangeNotifier {
         llmProvider: _llmProvider!,
         memoryService: _memoryService,
         skillManager: _skillManager,
-        lifecycleManager: _lifecycleManager,  // 新增
       );
       debugPrint('[AppState] Agent 系统初始化完成');
     }

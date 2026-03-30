@@ -373,10 +373,12 @@ class SkillLifecycleManager extends ChangeNotifier {
   }
 
   /// 从对话生成 Skill
+  /// 
+  /// [chatCallback] 是一个简单的聊天回调函数，接收 prompt 返回响应文本
   Future<SkillLifecycleItem?> generateFromConversation(
     String conversationContent,
     String skillName,
-    LLMProvider llmProvider,
+    Future<String> Function(String prompt) chatCallback,
   ) async {
     try {
       final prompt = '''
@@ -394,7 +396,7 @@ $conversationContent
 请直接输出 SKILL.md 的内容，不要包含其他说明。
 ''';
 
-      final skillContent = await llmProvider.chat(prompt);
+      final skillContent = await chatCallback(prompt);
       
       final skillId = skillName.toLowerCase().replaceAll(' ', '_');
       
@@ -430,9 +432,4 @@ $conversationContent
       'total': _items.length,
     };
   }
-}
-
-/// LLM Provider 接口（简化版）
-abstract class LLMProvider {
-  Future<String> chat(String message);
 }

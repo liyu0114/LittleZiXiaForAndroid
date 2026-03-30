@@ -106,13 +106,13 @@ class AgentLifecycleManager extends ChangeNotifier {
   AgentLifecycleEvent? get lastEvent => 
       _events.isNotEmpty ? _events.last : null;
 
-  /// 添加监听器
-  void addListener(LifecycleListener listener) {
+  /// 添加事件监听器
+  void addEventListener(LifecycleListener listener) {
     _listeners.add(listener);
   }
 
-  /// 移除监听器
-  void removeListener(LifecycleListener listener) {
+  /// 移除事件监听器
+  void removeEventListener(LifecycleListener listener) {
     _listeners.remove(listener);
   }
 

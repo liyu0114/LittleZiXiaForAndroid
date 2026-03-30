@@ -12,7 +12,6 @@ import 'capability_screen.dart';
 import 'skills_screen_v2.dart';
 import 'skillhub_screen.dart';
 import 'skill_lifecycle_screen.dart';
-import 'twenty_four_game_screen.dart';  // 新增
 import 'settings_screen.dart';
 import 'gateway_dashboard.dart';
 import 'debug_screen.dart';
@@ -136,7 +135,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             Tab(icon: Icon(Icons.extension), text: '技能'),
             Tab(icon: Icon(Icons.cloud_download), text: 'SkillHub'),
             Tab(icon: Icon(Icons.auto_fix_high), text: '生命周期'),  // 新增
-            Tab(icon: Icon(Icons.games), text: '游戏'),  // 新增
             Tab(icon: Icon(Icons.sensors), text: '传感器'),
             Tab(icon: Icon(Icons.settings), text: '设置'),
             Tab(icon: Icon(Icons.cloud), text: 'Gateway'),
@@ -186,7 +184,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               const SkillHubScreen(),
               const SkillLifecycleScreen(),
               Container(child: Center(child: Text('生命周期管理界面开发中'))),  // 生命周期
-              const TwentyFourGameScreen(),  // 游戏
               const SensorDataScreen(),
               const SettingsScreen(),
               const GatewayDashboard(),

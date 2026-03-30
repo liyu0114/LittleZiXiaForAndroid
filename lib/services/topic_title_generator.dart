@@ -3,8 +3,7 @@
 // 使用 LLM 自动生成话题标题
 
 import 'package:flutter/foundation.dart';
-import '../llm/llm_base.dart';
-import '../conversation/topic_manager.dart';
+import 'llm/llm_base.dart';
 
 /// 话题标题生成器
 class TopicTitleGenerator {
@@ -26,23 +25,18 @@ class TopicTitleGenerator {
         return '$role: ${m.content}';
       }).join('\n');
 
-      final prompt = '''根据以下对话内容，生成一个简洁的标题（不超过10个字）：
+      final promptText = '''根据以下对话内容，生成一个简洁的标题（不超过10个字）：
 
 $context
 
 要求：
-1. 准确概括话题主题
+1. 标题要能概括对话主题
 2. 简洁明了，不超过10个字
-3. 只返回标题，不要其他内容
+3. 只返回标题，不要其他内容''';
 
-标题：''';
-
-      final response = await _llmProvider.generate(
-        prompt,
-        maxTokens: 50,
-      );
-
-      final title = response.trim();
+      final chatMessages = [ChatMessage.user(promptText)];
+      final response = await _llmProvider.chat(chatMessages);
+      final title = response.content.trim();
       
       // 清理可能的前缀
       final cleanedTitle = title

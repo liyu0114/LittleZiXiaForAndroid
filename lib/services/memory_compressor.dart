@@ -4,8 +4,8 @@
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import '../llm/llm_base.dart';
-import '../conversation/topic_manager.dart';
+import 'llm/llm_base.dart';
+import 'conversation/topic_manager.dart';
 
 /// 记忆压缩服务
 class MemoryCompressor {
@@ -83,12 +83,9 @@ $conversationText
 
 摘要：''';
 
-      final response = await _llmProvider.generate(
-        prompt,
-        maxTokens: 300,
-      );
-
-      return response.trim();
+      final chatMessages = [ChatMessage.user(prompt)];
+      final response = await _llmProvider.chat(chatMessages);
+      return response.content.trim();
     } catch (e) {
       debugPrint('[MemoryCompressor] 生成摘要失败: $e');
       return '[压缩失败]';
@@ -135,12 +132,10 @@ $conversationText
 
 标签：''';
 
-      final response = await _llmProvider.generate(
-        prompt,
-        maxTokens: 50,
-      );
+      final chatMessages = [ChatMessage.user(prompt)];
+      final response = await _llmProvider.chat(chatMessages);
 
-      final tags = response
+      final tags = response.content
           .split(RegExp(r'[，,\s]+'))
           .map((t) => t.trim())
           .where((t) => t.isNotEmpty)
