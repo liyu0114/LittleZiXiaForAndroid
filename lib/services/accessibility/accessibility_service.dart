@@ -34,16 +34,17 @@ class AccessibilityNode {
   });
 
   factory AccessibilityNode.fromMap(Map<String, dynamic> map) {
+    final boundsMap = Map<String, dynamic>.from(map['bounds'] ?? {});
     return AccessibilityNode(
       id: map['id'] ?? '',
       text: map['text'],
       contentDescription: map['contentDescription'],
       className: map['className'] ?? '',
       bounds: Rect.fromLTWH(
-        (map['bounds']['left'] ?? 0).toDouble(),
-        (map['bounds']['top'] ?? 0).toDouble(),
-        (map['bounds']['width'] ?? 0).toDouble(),
-        (map['bounds']['height'] ?? 0).toDouble(),
+        (boundsMap['left'] ?? 0).toDouble(),
+        (boundsMap['top'] ?? 0).toDouble(),
+        (boundsMap['width'] ?? 0).toDouble(),
+        (boundsMap['height'] ?? 0).toDouble(),
       ),
       isClickable: map['isClickable'] ?? false,
       isScrollable: map['isScrollable'] ?? false,
@@ -51,7 +52,7 @@ class AccessibilityNode {
       isChecked: map['isChecked'] ?? false,
       isEnabled: map['isEnabled'] ?? true,
       children: (map['children'] as List?)
-          ?.map((c) => AccessibilityNode.fromMap(c))
+          ?.map((c) => AccessibilityNode.fromMap(Map<String, dynamic>.from(c)))
           .toList() ?? [],
     );
   }
@@ -121,7 +122,8 @@ class AccessibilityService extends ChangeNotifier {
     try {
       final result = await _channel.invokeMethod<Map>('getRootNode');
       if (result != null) {
-        _rootNode = AccessibilityNode.fromMap(result);
+        final Map<String, dynamic> typedResult = Map<String, dynamic>.from(result);
+        _rootNode = AccessibilityNode.fromMap(typedResult);
         notifyListeners();
         return _rootNode;
       }

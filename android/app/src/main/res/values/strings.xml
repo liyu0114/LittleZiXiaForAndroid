@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">小紫霞</string>
+    <string name="accessibility_service_description">
+        小紫霞无障碍服务\n\n
+        此服务允许小紫霞：\n
+        • 查看屏幕上的内容\n
+        • 模拟点击、滑动、输入等操作\n
+        • 自动操作其他应用（如支付宝）\n\n
+        这可以帮助您自动化重复性任务，提高效率。\n\n
+        您的数据安全是我们的首要任务。此服务仅用于您明确指示的操作。
+    </string>
+</resources>

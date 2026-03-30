@@ -160,6 +160,10 @@ class EnhancedSkillManager extends ChangeNotifier {
     await _loadManagedSkills();
     debugPrint('[EnhancedSkillManager] 托管技能加载完成，总数: ${_managedSkills.length}');
     
+    // 3. 预装内置技能（如果还没有被托管）
+    await _preloadBuiltinSkills();
+    debugPrint('[EnhancedSkillManager] 预装内置技能完成');
+    
     notifyListeners();
   }
   
@@ -186,6 +190,33 @@ class EnhancedSkillManager extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('[EnhancedSkillManager] 加载托管技能失败: $e');
+    }
+  }
+  
+  /// 预装内置技能
+  Future<void> _preloadBuiltinSkills() async {
+    final builtinSkills = _baseManager.registry.available;
+    int preloadedCount = 0;
+    
+    for (final skill in builtinSkills) {
+      // 检查是否已经托管
+      final existingIndex = _managedSkills.indexWhere((s) => s.skill.id == skill.id);
+      
+      if (existingIndex == -1) {
+        // 未托管，添加为已安装状态
+        _managedSkills.add(ManagedSkill(
+          skill: skill,
+          status: SkillStatus.installed,
+          source: 'builtin',
+          installedAt: DateTime.now(),
+        ));
+        preloadedCount++;
+      }
+    }
+    
+    if (preloadedCount > 0) {
+      debugPrint('[EnhancedSkillManager] 预装了 $preloadedCount 个内置技能');
+      await _saveManagedSkills();
     }
   }
   

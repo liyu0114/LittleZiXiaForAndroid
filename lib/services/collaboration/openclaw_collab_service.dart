@@ -221,7 +221,7 @@ class OpenClawCollaborationService extends ChangeNotifier {
       'id': 'memory_sync_${DateTime.now().millisecondsSinceEpoch}',
       'method': 'memory.sync',
       'params': {
-        'memories': _memoryService!.allMemories.map((m) => m.toJson()).toList(),
+        'memories': _memoryService!.entries.map((m) => m.toJson()).toList(),
       },
     });
     
