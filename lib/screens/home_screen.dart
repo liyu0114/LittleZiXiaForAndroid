@@ -35,7 +35,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 11, vsync: this);  // 改为 11 个 tab
+    _tabController = TabController(length: 10, vsync: this);  // 10 个 tab
   }
 
   Future<void> _sendMessage() async {
@@ -183,7 +183,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               const SkillsScreenV2(),
               const SkillHubScreen(),
               const SkillLifecycleScreen(),
-              Container(child: Center(child: Text('生命周期管理界面开发中'))),  // 生命周期
               const SensorDataScreen(),
               const SettingsScreen(),
               const GatewayDashboard(),
