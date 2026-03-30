@@ -32,17 +32,16 @@ class CustomLLMProvider extends LLMProvider {
             .map((m) => ModelInfo(
                   id: m['id'],
                   name: m['id'],
-                  ownedBy: m['owned_by'] ?? 'custom',
+                  contextLength: 4096,
+                  supportsVision: false,
+                  supportsTools: true,
                 ))
             .toList();
         return models;
       }
     } catch (e) {
-      // 如果获取模型列表失败，返回配置的默认模型
-      return config.models
-              ?.map((m) => ModelInfo(id: m, name: m, ownedBy: 'custom'))
-              .toList() ??
-          [];
+      // 如果获取模型列表失败，返回空列表
+      return [];
     }
 
     return [];
@@ -61,8 +60,8 @@ class CustomLLMProvider extends LLMProvider {
                 'content': m.content,
               })
           .toList(),
-      'temperature': config.temperature ?? 0.7,
-      'max_tokens': config.maxTokens ?? 4096,
+      'temperature': config.temperature,
+      'max_tokens': config.maxTokens,
       if (tools != null)
         'tools': tools
             .map((t) => {
@@ -93,23 +92,7 @@ class CustomLLMProvider extends LLMProvider {
 
         return LLMResponse(
           content: message['content'] ?? '',
-          toolCalls: message['tool_calls'] != null
-              ? (message['tool_calls'] as List)
-                  .map((tc) => ToolCall(
-                        id: tc['id'],
-                        name: tc['function']['name'],
-                        arguments: tc['function']['arguments'],
-                      ))
-                  .toList()
-              : null,
           finishReason: choice['finish_reason'],
-          usage: data['usage'] != null
-              ? Usage(
-                  promptTokens: data['usage']['prompt_tokens'],
-                  completionTokens: data['usage']['completion_tokens'],
-                  totalTokens: data['usage']['total_tokens'],
-                )
-              : null,
         );
       } else {
         throw LLMException(
@@ -134,8 +117,8 @@ class CustomLLMProvider extends LLMProvider {
                 'content': m.content,
               })
           .toList(),
-      'temperature': config.temperature ?? 0.7,
-      'max_tokens': config.maxTokens ?? 4096,
+      'temperature': config.temperature,
+      'max_tokens': config.maxTokens,
       'stream': true,
       if (tools != null)
         'tools': tools
@@ -169,7 +152,7 @@ class CustomLLMProvider extends LLMProvider {
           if (line.startsWith('data: ')) {
             final data = line.substring(6).trim();
             if (data == '[DONE]') {
-              yield StreamEvent.complete();
+              yield StreamEvent.done();
               return;
             }
 
@@ -180,18 +163,7 @@ class CustomLLMProvider extends LLMProvider {
               if (delta != null) {
                 final content = delta['content'];
                 if (content != null) {
-                  yield StreamEvent.text(content);
-                }
-
-                final toolCalls = delta['tool_calls'];
-                if (toolCalls != null) {
-                  for (final tc in toolCalls) {
-                    yield StreamEvent.toolCall(
-                      tc['id'],
-                      tc['function']['name'],
-                      tc['function']['arguments'],
-                    );
-                  }
+                  yield StreamEvent.delta(content);
                 }
               }
             } catch (e) {
@@ -210,7 +182,7 @@ class CustomLLMProvider extends LLMProvider {
     try {
       // 尝试获取模型列表来验证配置
       final models = await getModels();
-      return models.isNotEmpty || (config.model?.isNotEmpty ?? false);
+      return models.isNotEmpty || config.model.isNotEmpty;
     } catch (e) {
       return false;
     }

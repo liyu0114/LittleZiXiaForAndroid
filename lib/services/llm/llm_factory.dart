@@ -6,6 +6,7 @@ import 'llm_base.dart';
 import 'openai_provider.dart';
 import 'glm_provider.dart';
 import 'claude_provider.dart';
+import 'custom_provider.dart';
 
 /// LLM 工厂
 class LLMFactory {
@@ -23,17 +24,23 @@ class LLMFactory {
       case 'glm':
         return GLMProvider(config);
 
+      case 'custom':
+        return CustomLLMProvider(config);
+
       // 以下使用 OpenAI 兼容接口
       case 'qwen':
       case 'ernie':
       case 'deepseek':
       case 'moonshot':
+      case 'kimi':
       case 'ollama':
-      case 'custom':
+      case 'gemini':
+      case 'grok':
+      case 'doubao':
         return OpenAIProvider(config);
 
       default:
-        return OpenAIProvider(config);
+        return CustomLLMProvider(config);
     }
   }
 
@@ -114,6 +121,38 @@ const List<ProviderInfo> availableProviders = [
     defaultBaseUrl: 'https://api.deepseek.com/v1',
     apiKeyPlaceholder: 'sk-...',
     defaultModels: ['deepseek-chat', 'deepseek-coder'],
+  ),
+  ProviderInfo(
+    id: 'gemini',
+    name: 'Google Gemini',
+    description: 'Gemini 2.0, Gemini 1.5 等模型（OpenAI 兼容）',
+    defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    apiKeyPlaceholder: 'AIza...',
+    defaultModels: ['gemini-2.0-flash-exp', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+  ),
+  ProviderInfo(
+    id: 'grok',
+    name: 'xAI Grok',
+    description: 'Grok-2, Grok-3 等模型',
+    defaultBaseUrl: 'https://api.x.ai/v1',
+    apiKeyPlaceholder: 'xai-...',
+    defaultModels: ['grok-2-1212', 'grok-2-vision-1212', 'grok-beta'],
+  ),
+  ProviderInfo(
+    id: 'kimi',
+    name: 'Moonshot Kimi',
+    description: 'Kimi 长上下文模型',
+    defaultBaseUrl: 'https://api.moonshot.cn/v1',
+    apiKeyPlaceholder: 'sk-...',
+    defaultModels: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+  ),
+  ProviderInfo(
+    id: 'doubao',
+    name: '字节跳动 豆包',
+    description: '豆包 Pro, 豆包 Lite 等模型',
+    defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    apiKeyPlaceholder: '...',
+    defaultModels: ['doubao-pro-4k', 'doubao-pro-32k', 'doubao-pro-128k', 'doubao-lite-4k'],
   ),
   ProviderInfo(
     id: 'ollama',
