@@ -17,8 +17,10 @@ class SkillHubItem {
   final String author;
   final List<String> tags;
   final String downloadUrl;
+  final bool isMobileFriendly;  // 是否适合移动端
   bool isInstalled;
   bool isInstalling;
+  bool isSelected;  // 是否选中（用于批量选择）
 
   SkillHubItem({
     required this.id,
@@ -28,8 +30,10 @@ class SkillHubItem {
     required this.author,
     required this.tags,
     required this.downloadUrl,
+    this.isMobileFriendly = true,
     this.isInstalled = false,
     this.isInstalling = false,
+    this.isSelected = false,
   });
 
   factory SkillHubItem.fromJson(Map<String, dynamic> json) {
@@ -41,6 +45,7 @@ class SkillHubItem {
       author: json['author'] ?? 'Unknown',
       tags: List<String>.from(json['tags'] ?? []),
       downloadUrl: json['download_url'] ?? '',
+      isMobileFriendly: json['mobile_friendly'] ?? true,
       isInstalled: json['is_installed'] ?? false,
     );
   }
@@ -60,6 +65,9 @@ class _SkillHubScreenState extends State<SkillHubScreen> {
   bool _isSyncing = false;
   String? _errorMessage;
   final TextEditingController _searchController = TextEditingController();
+  
+  // 选择模式
+  bool _selectionMode = false;
 
   @override
   void initState() {
@@ -99,6 +107,11 @@ class _SkillHubScreenState extends State<SkillHubScreen> {
 
       setState(() {
         _skills = recommendedSkills.map((skill) {
+          // 判断是否适合移动端
+          final isMobileFriendly = skill.tags.contains('mobile') || 
+              !skill.tags.contains('cli') && 
+              !skill.tags.contains('desktop');
+          
           final item = SkillHubItem(
             id: skill.slug,
             name: skill.name,
@@ -107,6 +120,7 @@ class _SkillHubScreenState extends State<SkillHubScreen> {
             author: 'Community',
             tags: skill.tags,
             downloadUrl: skill.homepage ?? '',
+            isMobileFriendly: isMobileFriendly,
             isInstalled: installedSkillIds.contains(skill.slug),
           );
           return item;
@@ -118,7 +132,7 @@ class _SkillHubScreenState extends State<SkillHubScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('✅ 同步成功，共 ${_skills.length} 个推荐技能'),
+            content: Text('✅ 同步成功，共 ${_skills.length} 个技能'),
             backgroundColor: Colors.green,
           ),
         );
@@ -194,6 +208,9 @@ ${skill.description}
       
       // 添加到注册表
       appState.skillRegistry.register(newSkill);
+      
+      // 刷新 UI
+      appState.notifyListeners();
 
       setState(() {
         skill.isInstalled = true;
@@ -227,8 +244,9 @@ ${skill.description}
   /// 卸载技能
   Future<void> _uninstallSkill(SkillHubItem skill) async {
     try {
-      // TODO: 实际的卸载逻辑
-      await Future.delayed(const Duration(seconds: 1));
+      final appState = context.read<AppState>();
+      appState.skillRegistry.unregister(skill.id);
+      appState.notifyListeners();
 
       setState(() {
         skill.isInstalled = false;
@@ -253,27 +271,173 @@ ${skill.description}
       }
     }
   }
+  
+  /// 切换选择模式
+  void _toggleSelectionMode() {
+    setState(() {
+      _selectionMode = !_selectionMode;
+      if (!_selectionMode) {
+        // 退出选择模式时清空选择
+        for (var skill in _skills) {
+          skill.isSelected = false;
+        }
+      }
+    });
+  }
+  
+  /// 全选/取消全选
+  void _toggleSelectAll() {
+    final allSelected = _filteredSkills.every((s) => s.isSelected || s.isInstalled);
+    setState(() {
+      for (var skill in _filteredSkills) {
+        if (!skill.isInstalled) {
+          skill.isSelected = !allSelected;
+        }
+      }
+    });
+  }
+  
+  /// 批量安装选中的技能
+  Future<void> _installSelected() async {
+    final selectedSkills = _filteredSkills.where((s) => s.isSelected && !s.isInstalled).toList();
+    
+    if (selectedSkills.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先选择要安装的技能')),
+      );
+      return;
+    }
+    
+    // 确认对话框
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('批量安装'),
+        content: Text('确定要安装 ${selectedSkills.length} 个技能吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('安装'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed != true) return;
+    
+    // 逐个安装
+    for (var skill in selectedSkills) {
+      await _installSkill(skill);
+    }
+    
+    setState(() {
+      _selectionMode = false;
+    });
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ 已安装 ${selectedSkills.length} 个技能'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+  
+  /// 测试技能
+  void _testSkill(SkillHubItem skill) {
+    // 跳转到技能测试界面
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('测试: ${skill.name}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(skill.description),
+            const SizedBox(height: 16),
+            if (!skill.isMobileFriendly)
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning, color: Colors.orange.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text('此技能可能不适合移动端'),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 8),
+            Text('标签: ${skill.tags.join(", ")}', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _installSkill(skill);
+            },
+            child: const Text('安装'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
     final installedCount = _skills.where((s) => s.isInstalled).length;
+    final selectedCount = _filteredSkills.where((s) => s.isSelected).length;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('SkillHub 技能市场'),
         actions: [
-          IconButton(
-            icon: _isSyncing
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.sync),
-            onPressed: _isSyncing ? null : _syncFromSkillHub,
-            tooltip: '同步技能',
-          ),
+          if (_selectionMode) ...[
+            IconButton(
+              icon: const Icon(Icons.select_all),
+              onPressed: _toggleSelectAll,
+              tooltip: '全选',
+            ),
+            IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: _toggleSelectionMode,
+              tooltip: '取消选择',
+            ),
+          ] else ...[
+            IconButton(
+              icon: const Icon(Icons.checklist),
+              onPressed: _toggleSelectionMode,
+              tooltip: '批量选择',
+            ),
+            IconButton(
+              icon: _isSyncing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.sync),
+              onPressed: _isSyncing ? null : _syncFromSkillHub,
+              tooltip: '同步技能',
+            ),
+          ],
         ],
       ),
       body: Column(
@@ -302,36 +466,16 @@ ${skill.description}
               children: [
                 Text('共 ${_skills.length} 个技能'),
                 const SizedBox(width: 16),
-                Text('已安装 $installedCount 个'),
+                Text('已安装: $installedCount', style: const TextStyle(color: Colors.green)),
+                if (_selectionMode && selectedCount > 0) ...[
+                  const SizedBox(width: 16),
+                  Text('已选: $selectedCount', style: const TextStyle(color: Colors.blue)),
+                ],
               ],
             ),
           ),
-
+          
           const SizedBox(height: 8),
-
-          // 错误提示
-          if (_errorMessage != null)
-            Container(
-              margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.red.shade200),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.error, color: Colors.red.shade700),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _errorMessage!,
-                      style: TextStyle(color: Colors.red.shade700),
-                    ),
-                  ),
-                ],
-              ),
-            ),
 
           // 技能列表
           Expanded(
@@ -340,84 +484,132 @@ ${skill.description}
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(
-                          Icons.extension,
-                          size: 64,
-                          color: Colors.grey.shade400,
-                        ),
+                        Icon(Icons.cloud_download, size: 64, color: Colors.grey.shade400),
                         const SizedBox(height: 16),
-                        Text(
-                          '还没有技能列表',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '点击右上角的同步按钮从 SkillHub 获取',
-                          style: TextStyle(color: Colors.grey.shade500),
-                        ),
+                        Text('点击右上角同步按钮获取技能', style: TextStyle(color: Colors.grey.shade600)),
                       ],
                     ),
                   )
                 : ListView.builder(
+                    padding: const EdgeInsets.all(8),
                     itemCount: _filteredSkills.length,
                     itemBuilder: (context, index) {
                       final skill = _filteredSkills[index];
-                      return Card(
-                        margin: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: skill.isInstalled
-                                ? Colors.green
-                                : Colors.blue,
-                            child: Icon(
-                              skill.isInstalled
-                                  ? Icons.check
-                                  : Icons.extension,
-                              color: Colors.white,
-                            ),
-                          ),
-                          title: Text(skill.name),
-                          subtitle: Text(
-                            skill.description,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          trailing: skill.isInstalling
-                              ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : ElevatedButton(
-                                  onPressed: () {
-                                    if (skill.isInstalled) {
-                                      _uninstallSkill(skill);
-                                    } else {
-                                      _installSkill(skill);
-                                    }
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: skill.isInstalled
-                                        ? Colors.red
-                                        : Colors.blue,
-                                  ),
-                                  child: Text(
-                                    skill.isInstalled ? '卸载' : '安装',
-                                  ),
-                                ),
-                        ),
-                      );
+                      return _buildSkillCard(skill);
                     },
                   ),
           ),
+          
+          // 批量操作栏
+          if (_selectionMode && selectedCount > 0)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Text('已选择 $selectedCount 个技能'),
+                  const Spacer(),
+                  FilledButton.icon(
+                    onPressed: _installSelected,
+                    icon: const Icon(Icons.download),
+                    label: const Text('批量安装'),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
+  }
+  
+  Widget _buildSkillCard(SkillHubItem skill) {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: ListTile(
+        leading: _selectionMode
+            ? Checkbox(
+                value: skill.isSelected || skill.isInstalled,
+                onChanged: skill.isInstalled 
+                    ? null 
+                    : (v) => setState(() => skill.isSelected = v ?? false),
+              )
+            : CircleAvatar(
+                child: Text(skill.name[0]),
+              ),
+        title: Row(
+          children: [
+            Expanded(child: Text(skill.name)),
+            if (!skill.isMobileFriendly)
+              Icon(Icons.warning, size: 16, color: Colors.orange.shade700),
+          ],
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              skill.description,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 4,
+              children: skill.tags.take(3).map((tag) => Chip(
+                label: Text(tag, style: const TextStyle(fontSize: 10)),
+                visualDensity: VisualDensity.compact,
+              )).toList(),
+            ),
+          ],
+        ),
+        trailing: skill.isInstalled
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.green),
+                  IconButton(
+                    icon: const Icon(Icons.delete),
+                    onPressed: () => _uninstallSkill(skill),
+                    tooltip: '卸载',
+                  ),
+                ],
+              )
+            : skill.isInstalling
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.play_arrow),
+                        onPressed: () => _testSkill(skill),
+                        tooltip: '测试',
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.download),
+                        onPressed: () => _installSkill(skill),
+                        tooltip: '安装',
+                      ),
+                    ],
+                  ),
+        isThreeLine: true,
+      ),
+    );
+  }
+  
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 }
