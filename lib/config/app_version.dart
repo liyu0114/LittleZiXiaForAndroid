@@ -3,9 +3,9 @@
 // 统一管理版本号，避免不一致
 
 class AppVersion {
-  static const String version = '1.0.52';
-  static const String buildNumber = '80';
-  static const String fullVersion = 'v1.0.52';
+  static const String version = '1.0.53';
+  static const String buildNumber = '81';
+  static const String fullVersion = 'v1.0.53';
   static const String buildDate = '2026-03-31';
   
   static String get displayVersion => 'v$version';

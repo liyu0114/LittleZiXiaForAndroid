@@ -1,6 +1,6 @@
 name: little_zixia
 description: LittleZiXia - Personal AI Assistant Mobile Client
-version: 1.0.52+80
+version: 1.0.53+81
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

@@ -17,40 +17,110 @@ class MessageList extends StatefulWidget {
 
 class _MessageListState extends State<MessageList> {
   final ScrollController _scrollController = ScrollController();
+  bool _isUserScrolling = false;
+  bool _isNearBottom = true;  // 是否接近底部
+  
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+  
+  void _onScroll() {
+    // 检测用户是否在手动滚动
+    if (_scrollController.hasClients) {
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      final currentScroll = _scrollController.position.pixels;
+      
+      // 如果距离底部不超过 100 像素，认为"接近底部"
+      _isNearBottom = (maxScroll - currentScroll) < 100;
+      
+      // 检测用户是否在手动滚动（非程序触发的滚动）
+      if (_scrollController.position.isScrollingNotifier.value) {
+        _isUserScrolling = true;
+      }
+    }
+  }
 
   @override
   void didUpdateWidget(MessageList oldWidget) {
     super.didUpdateWidget(oldWidget);
     
-    // 当消息数量变化时，自动滚动到底部
+    // 当消息数量变化时，只有在接近底部时才自动滚动
     if (widget.messages.length != oldWidget.messages.length) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-        }
-      });
+      _scrollToBottomIfNeeded();
+    }
+    
+    // 当最后一条消息内容变化（流式输出），如果接近底部则滚动
+    if (widget.messages.isNotEmpty && 
+        oldWidget.messages.isNotEmpty &&
+        widget.messages.last.id == oldWidget.messages.last.id &&
+        widget.messages.last.content != oldWidget.messages.last.content) {
+      _scrollToBottomIfNeeded();
+    }
+  }
+  
+  void _scrollToBottomIfNeeded() {
+    if (!_isNearBottom) return;  // 用户在查看历史，不滚动
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+  
+  /// 手动滚动到底部
+  void scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
-      controller: _scrollController,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      itemCount: widget.messages.length,
-      itemBuilder: (context, index) {
-        final message = widget.messages[index];
-        return _MessageBubble(message: message);
-      },
+    return Stack(
+      children: [
+        ListView.builder(
+          controller: _scrollController,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          itemCount: widget.messages.length,
+          itemBuilder: (context, index) {
+            final message = widget.messages[index];
+            return _MessageBubble(message: message);
+          },
+        ),
+        
+        // "滚动到底部"按钮（当用户向上滚动时显示）
+        if (!_isNearBottom && _scrollController.hasClients)
+          Positioned(
+            bottom: 16,
+            right: 16,
+            child: FloatingActionButton.small(
+              onPressed: () {
+                scrollToBottom();
+                setState(() {
+                  _isNearBottom = true;
+                });
+              },
+              child: const Icon(Icons.arrow_downward),
+            ),
+          ),
+      ],
     );
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
   }
