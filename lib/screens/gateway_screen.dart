@@ -7,6 +7,11 @@ import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../services/remote/remote_connection.dart';
 
+/// 默认 Gateway 配置（Windows龙虾）
+const _defaultGatewayUrl = 'http://100.80.206.8:18789';
+const _defaultGatewayToken = '6374a3974149286117d8df733c6f20dfd7d8bed73aa9de7c';
+const _defaultGatewayName = 'Windows龙虾';
+
 class GatewayScreen extends StatefulWidget {
   const GatewayScreen({super.key});
 
@@ -37,6 +42,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
   Future<void> _loadConfig() async {
     final appState = context.read<AppState>();
     final connection = appState.remoteConnection;
+    
     if (connection != null) {
       _urlController.text = connection.url;
       if (connection.token != null) {
@@ -55,6 +61,10 @@ class _GatewayScreenState extends State<GatewayScreen> {
           });
         }
       });
+    } else {
+      // 使用默认 Gateway 配置（Windows龙虾）
+      _urlController.text = _defaultGatewayUrl;
+      _tokenController.text = _defaultGatewayToken;
     }
   }
 

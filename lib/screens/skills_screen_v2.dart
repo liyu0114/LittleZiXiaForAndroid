@@ -5,7 +5,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/app_state.dart';
 import '../services/skills/skill_system.dart';
 import '../services/skills/skill_manager_new.dart';
@@ -643,6 +642,27 @@ class _SkillsScreenV2State extends State<SkillsScreenV2>
             ),
             const SizedBox(height: 8),
             Text(skill.metadata.description),
+            const SizedBox(height: 16),
+            // 操作按钮
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _shareSkill(skill),
+                    icon: const Icon(Icons.share, size: 18),
+                    label: const Text('分享'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _viewVersionHistory(skill),
+                    icon: const Icon(Icons.history, size: 18),
+                    label: const Text('版本历史'),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -1241,8 +1261,7 @@ class _SkillsScreenV2State extends State<SkillsScreenV2>
       if (_testParamsController.text.isNotEmpty) {
         try {
           params = Map<String, dynamic>.from(
-            // 简单的 JSON 解析
-            {},
+            json.decode(_testParamsController.text) as Map,
           );
         } catch (_) {}
       }

@@ -395,6 +395,37 @@ class AppState extends ChangeNotifier {
     
     // 加载自定义 Skills（在配置加载完成后）
     _loadCustomSkills();
+    
+    // 自动连接默认 Gateway（Windows龙虾）
+    await _autoConnectDefaultGateway();
+  }
+  
+  /// 自动连接默认 Gateway
+  Future<void> _autoConnectDefaultGateway() async {
+    // 如果已经有连接，跳过
+    if (_remoteConnection != null && _remoteConnection!.isConnected) {
+      return;
+    }
+    
+    // 默认 Gateway 配置（Windows龙虾）
+    const defaultUrl = 'http://100.80.206.8:18789';
+    const defaultToken = '6374a3974149286117d8df733c6f20dfd7d8bed73aa9de7c';
+    
+    try {
+      _logger.i('尝试自动连接默认 Gateway: $defaultUrl');
+      final connection = RemoteConnection(url: defaultUrl, token: defaultToken);
+      final success = await connection.connect();
+      
+      if (success) {
+        _remoteConnection = connection;
+        _logger.i('自动连接默认 Gateway 成功');
+        notifyListeners();
+      } else {
+        _logger.w('自动连接默认 Gateway 失败: ${connection.error}');
+      }
+    } catch (e) {
+      _logger.w('自动连接默认 Gateway 出错: $e');
+    }
   }
 
   /// 保存 LLM 配置
