@@ -167,8 +167,33 @@ class _SkillHubScreenState extends State<SkillHubScreen> {
     });
 
     try {
-      // TODO: 实际的安装逻辑
-      await Future.delayed(const Duration(seconds: 1));
+      final appState = context.read<AppState>();
+      
+      // 创建技能对象
+      final newSkill = Skill(
+        id: skill.id,
+        metadata: SkillMetadata(
+          name: skill.name,
+          description: skill.description,
+          homepage: skill.downloadUrl,
+        ),
+        body: '''
+# ${skill.name}
+
+${skill.description}
+
+## 使用方法
+
+此技能从 SkillHub 同步安装。
+
+## 参数
+
+无特定参数。
+''',
+      );
+      
+      // 添加到注册表
+      appState.skillRegistry.register(newSkill);
 
       setState(() {
         skill.isInstalled = true;

@@ -16,6 +16,8 @@ import 'settings_screen.dart';
 import 'gateway_dashboard.dart';
 import 'debug_screen.dart';
 import 'sensor_data_screen.dart';
+import 'group_chat_screen.dart';  // 新增群聊屏幕
+import 'twenty_four_game_screen.dart';  // 新增24点游戏屏幕
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -35,7 +37,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 10, vsync: this);  // 10 个 tab
+    _tabController = TabController(length: 12, vsync: this);  // 12 个 tab（新增游戏）
   }
 
   Future<void> _sendMessage() async {
@@ -134,7 +136,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             Tab(icon: Icon(Icons.tune), text: '能力'),
             Tab(icon: Icon(Icons.extension), text: '技能'),
             Tab(icon: Icon(Icons.cloud_download), text: 'SkillHub'),
-            Tab(icon: Icon(Icons.auto_fix_high), text: '生命周期'),  // 新增
+            Tab(icon: Icon(Icons.auto_fix_high), text: '生命周期'),
+            Tab(icon: Icon(Icons.people), text: '群聊'),
+            Tab(icon: Icon(Icons.games), text: '24点'),  // 新增游戏
             Tab(icon: Icon(Icons.sensors), text: '传感器'),
             Tab(icon: Icon(Icons.settings), text: '设置'),
             Tab(icon: Icon(Icons.cloud), text: 'Gateway'),
@@ -183,6 +187,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               const SkillsScreenV2(),
               const SkillHubScreen(),
               const SkillLifecycleScreen(),
+              const GroupChatScreen(),  // 新增群聊
+              const TwentyFourGameScreen(),  // 新增24点游戏
               const SensorDataScreen(),
               const SettingsScreen(),
               const GatewayDashboard(),
