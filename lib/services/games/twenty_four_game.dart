@@ -126,6 +126,9 @@ class TwentyFourGameService {
   int get rushTimeSeconds => _rushTimeSeconds;
   set rushTimeSeconds(int value) => _rushTimeSeconds = value;
   
+  /// 当前玩家ID
+  String? get currentUserId => _currentPlayerId;
+  
   /// 初始化玩家
   void initPlayer({
     required String playerId,
