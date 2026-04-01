@@ -52,6 +52,23 @@ class GameRoom {
     this.winnerAnswer,
     this.rushingPlayerId,
   });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'players': players.map((p) => {
+      'id': p.id,
+      'name': p.name,
+      'isBot': p.isBot,
+      'score': p.score,
+    }).toList(),
+    'maxPlayers': maxPlayers,
+    'state': state.name,
+    'createdAt': createdAt.toIso8601String(),
+    'winnerId': winnerId,
+    'winnerAnswer': winnerAnswer,
+    'rushingPlayerId': rushingPlayerId,
+  };
 }
 
 /// 24点游戏服务

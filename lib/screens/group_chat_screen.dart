@@ -28,6 +28,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   List<DiscoveredRoom> _nearbyRooms = [];
   bool _isScanning = false;
   
+  // 已连接的设备
+  List<dynamic> _connectedDevices = [];
+  
+  // 是否作为机器人
+  bool _isBot = false;
+  
+  // 是否已初始化
+  bool _initialized = false;
+  
   @override
   void initState() {
     super.initState();
@@ -37,18 +46,18 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   void _initServices() async {
     final deviceId = 'device_${DateTime.now().millisecondsSinceEpoch}';
     
-    // 初始化群聊服务
-    _chatService.initUser(
-      userId: deviceId,
-      userName: '小紫霞用户',
-      isBot: false,
-    );
-    
     // 初始化发现服务
     _discoveryService.init(
       deviceId: deviceId,
       deviceName: '小紫霞用户',
-      isBot: false,
+      isBot: _isBot,
+    );
+    
+    // 初始化群聊服务
+    await _chatService.initUser(
+      userId: deviceId,
+      userName: _isBot ? '小紫霞机器人' : '小紫霞用户',
+      isBot: _isBot,
     );
     
     // 监听消息
@@ -78,20 +87,96 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       }
     });
     
+    setState(() => _initialized = true);
+    
     // 开始扫描
     _startScanning();
   }
   
   void _startScanning() async {
-    setState(() => _isScanning = true);
-    await _discoveryService.start();
+    if (_isScanning) return;
     
-    // 3秒后停止扫描状态
-    Future.delayed(const Duration(seconds: 3), () {
+    setState(() => _isScanning = true);
+    
+    try {
+      // 启动发现服务（异步）
+      await _discoveryService.start();
+    } catch (e) {
       if (mounted) {
-        setState(() => _isScanning = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('启动扫描失败: $e')),
+        );
       }
-    });
+    } finally {
+      // 1秒后停止扫描状态
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          setState(() => _isScanning = false);
+        }
+      });
+    }
+  }
+  
+  void _showAddDeviceByIP() {
+    final ipController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('手动添加设备'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('输入对方设备的 IP 地址（Tailscale 或局域网 IP）'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: ipController,
+              decoration: const InputDecoration(
+                labelText: 'IP 地址',
+                hintText: '例如: 100.120.127.105',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final ip = ipController.text.trim();
+              if (ip.isEmpty) return;
+              
+              Navigator.pop(context);
+              
+              // 显示扫描中
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('正在连接 $ip...')),
+              );
+              
+              // 扫描 IP
+              final found = await _discoveryService.addDeviceManually(ip);
+              
+              if (mounted) {
+                if (found) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('已发现设备 $ip')),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('无法连接到 $ip')),
+                  );
+                }
+              }
+            },
+            child: const Text('连接'),
+          ),
+        ],
+      ),
+    );
   }
   
   @override
@@ -161,6 +246,49 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     );
   }
   
+  void _connectToDevice(DiscoveredDevice device) async {
+    final success = await _chatService.connectToDevice(
+      deviceId: device.id,
+      deviceName: device.name,
+      ipAddress: device.ipAddress,
+      port: 18790,
+    );
+    
+    if (success) {
+      setState(() {
+        _connectedDevices = _chatService.connectedDevices;
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已连接到 ${device.name}')),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('连接 ${device.name} 失败')),
+        );
+      }
+    }
+  }
+  
+  void _toggleBotMode() async {
+    setState(() => _isBot = !_isBot);
+    
+    // 重新初始化服务
+    _chatService.dispose();
+    _discoveryService.dispose();
+    
+    _initServices();
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_isBot ? '已切换为机器人模式' : '已切换为用户模式')),
+      );
+    }
+  }
+  
   void _sendMessage() {
     if (_messageController.text.isEmpty || _currentRoom == null) return;
     _chatService.sendMessage(_currentRoom!.id, _messageController.text);
@@ -216,6 +344,16 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               tooltip: '退出房间',
             ),
           ] else ...[
+            IconButton(
+              icon: Icon(_isBot ? Icons.smart_toy : Icons.person),
+              onPressed: _toggleBotMode,
+              tooltip: _isBot ? '机器人模式 (点击切换)' : '用户模式 (点击切换)',
+            ),
+            IconButton(
+              icon: const Icon(Icons.add_link),
+              onPressed: _showAddDeviceByIP,
+              tooltip: '手动添加设备 (Tailscale)',
+            ),
             IconButton(
               icon: _isScanning 
                   ? const SizedBox(
@@ -284,12 +422,41 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            ...(_nearbyDevices.map((device) => ListTile(
-              leading: CircleAvatar(
-                child: Icon(device.isBot ? Icons.smart_toy : Icons.person),
+            ...(_nearbyDevices.map((device) => Card(
+              child: ListTile(
+                leading: CircleAvatar(
+                  child: Icon(device.isBot ? Icons.smart_toy : Icons.person),
+                ),
+                title: Text(device.name),
+                subtitle: Text(device.isBot ? '机器人' : '用户'),
+                trailing: TextButton.icon(
+                  onPressed: () => _connectToDevice(device),
+                  icon: const Icon(Icons.link),
+                  label: const Text('连接'),
+                ),
               ),
-              title: Text(device.name),
-              subtitle: Text(device.isBot ? '机器人' : '用户'),
+            ))),
+            const SizedBox(height: 16),
+          ],
+          
+          // 已连接设备
+          if (_connectedDevices.isNotEmpty) ...[
+            Row(
+              children: [
+                const Icon(Icons.link, size: 20, color: Colors.green),
+                const SizedBox(width: 8),
+                Text('已连接 (${_connectedDevices.length})', 
+                     style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.green)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...(_connectedDevices.map((conn) => ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: Colors.green,
+                child: Icon(Icons.check, color: Colors.white, size: 16),
+              ),
+              title: Text(conn.deviceName),
+              subtitle: Text(conn.ipAddress),
             ))),
             const SizedBox(height: 16),
           ],
@@ -318,9 +485,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                         icon: const Icon(Icons.add),
                         label: const Text('创建房间'),
                       ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: _showAddDeviceByIP,
+                        icon: const Icon(Icons.link),
+                        label: const Text('手动添加设备 (Tailscale)'),
+                      ),
                       const SizedBox(height: 8),
                       Text(
-                        '创建房间后，附近设备会自动发现',
+                        '通过 Tailscale 连接时，请手动输入 IP',
                         style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                       ),
                     ],

@@ -1,6 +1,6 @@
-// 局域网设备发现服务
+// 设备发现服务
 //
-// 类似微信面对面入群，自动发现附近的设备和房间
+// 支持 Tailscale 等虚拟网络（使用 TCP 而非 UDP 多播）
 
 import 'dart:async';
 import 'dart:convert';
@@ -79,15 +79,14 @@ class DiscoveredRoom {
   }
 }
 
-/// 局域网发现服务
+/// 设备发现服务（兼容 Tailscale）
 class LanDiscoveryService {
   final Logger _logger = Logger();
   
-  // UDP 多播配置
-  static const String _multicastGroup = '239.255.255.250';
-  static const int _multicastPort = 37689;
-  static const Duration _broadcastInterval = Duration(seconds: 3);
-  static const Duration _deviceTimeout = Duration(seconds: 10);
+  // TCP 端口配置
+  static const int _discoveryPort = 37689;
+  static const Duration _connectionTimeout = Duration(seconds: 3);
+  static const Duration _deviceTimeout = Duration(seconds: 30);
   
   // 本机信息
   String? _localDeviceId;
@@ -100,14 +99,20 @@ class LanDiscoveryService {
   final Map<String, DiscoveredDevice> _devices = {};
   final Map<String, DiscoveredRoom> _rooms = {};
   
-  // UDP Socket
-  RawDatagramSocket? _socket;
-  Timer? _broadcastTimer;
-  Timer? _cleanupTimer;
+  // TCP 服务器
+  ServerSocket? _server;
+  
+  // 已知的设备 IP（用于主动探测）
+  final List<String> _knownIPs = [];
+  
+  // 扫描任务
+  Timer? _scanTimer;
+  bool _isScanning = false;
   
   // 流控制器
   final _devicesController = StreamController<List<DiscoveredDevice>>.broadcast();
   final _roomsController = StreamController<List<DiscoveredRoom>>.broadcast();
+  final _errorController = StreamController<String>.broadcast();
   
   /// 设备列表流
   Stream<List<DiscoveredDevice>> get devicesStream => _devicesController.stream;
@@ -115,11 +120,17 @@ class LanDiscoveryService {
   /// 房间列表流
   Stream<List<DiscoveredRoom>> get roomsStream => _roomsController.stream;
   
+  /// 错误流
+  Stream<String> get errorStream => _errorController.stream;
+  
   /// 当前发现的设备
   List<DiscoveredDevice> get devices => _devices.values.toList();
   
   /// 当前发现的房间
   List<DiscoveredRoom> get rooms => _rooms.values.toList();
+  
+  /// 是否正在扫描
+  bool get isScanning => _isScanning;
   
   /// 初始化本机信息
   void init({
@@ -130,105 +141,210 @@ class LanDiscoveryService {
     _localDeviceId = deviceId;
     _localDeviceName = deviceName;
     _isBot = isBot;
-    _logger.i('局域网发现初始化: $deviceName (${isBot ? '机器人' : '用户'})');
+    _logger.i('设备发现初始化: $deviceName (${isBot ? '机器人' : '用户'})');
   }
   
-  /// 设置当前房间（广播给其他设备）
+  /// 设置当前房间（告诉其他设备）
   void setCurrentRoom(String? roomId, String? roomName) {
     _currentRoomId = roomId;
     _currentRoomName = roomName;
   }
   
-  /// 开始发现服务
+  /// 启动发现服务
   Future<void> start() async {
+    if (_server != null) return;
+    
     try {
-      // 绑定 UDP Socket
-      _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, _multicastPort);
+      _isScanning = true;
       
-      // 加入多播组
-      _socket!.joinMulticast(InternetAddress(_multicastGroup));
+      // 启动 TCP 服务器（等待其他设备连接）
+      _server = await ServerSocket.bind(
+        InternetAddress.anyIPv4,
+        _discoveryPort,
+      );
       
-      // 监听消息
-      _socket!.listen(_handleMessage);
+      _server!.listen(
+        _handleIncomingConnection,
+        onError: (error) {
+          _logger.e('服务器错误: $error');
+          _errorController.add('服务器错误: $error');
+        },
+      );
       
-      // 开始广播
-      _startBroadcast();
+      _logger.i('发现服务已启动 (端口: $_discoveryPort)');
       
-      // 开始清理过期设备
-      _startCleanup();
+      // 广播当前状态
+      _notifyDevices();
+      _notifyRooms();
       
-      _logger.i('局域网发现服务已启动');
     } catch (e) {
-      _logger.e('启动局域网发现失败: $e');
+      _logger.e('启动发现服务失败: $e');
+      _errorController.add('启动发现服务失败: $e');
+      _isScanning = false;
     }
   }
   
   /// 停止发现服务
   void stop() {
-    _broadcastTimer?.cancel();
-    _cleanupTimer?.cancel();
-    _socket?.close();
-    _logger.i('局域网发现服务已停止');
+    _scanTimer?.cancel();
+    _server?.close();
+    _server = null;
+    _isScanning = false;
+    _logger.i('发现服务已停止');
   }
   
-  /// 开始广播
-  void _startBroadcast() {
-    _broadcastTimer = Timer.periodic(_broadcastInterval, (_) {
-      _broadcast();
-    });
-    _broadcast(); // 立即广播一次
-  }
-  
-  /// 广播本机信息
-  void _broadcast() {
-    if (_socket == null || _localDeviceId == null) return;
+  /// 扫描指定 IP 地址
+  Future<bool> scanIP(String ipAddress) async {
+    if (_localDeviceId == null) return false;
     
-    final message = jsonEncode({
-      'type': 'discover',
-      'id': _localDeviceId,
-      'name': _localDeviceName,
-      'isBot': _isBot,
-      'roomId': _currentRoomId,
-      'roomName': _currentRoomName,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    });
-    
-    final data = utf8.encode(message);
-    _socket!.send(data, InternetAddress(_multicastGroup), _multicastPort);
-  }
-  
-  /// 处理接收到的消息
-  void _handleMessage(RawSocketEvent event) {
-    if (event != RawSocketEvent.read) return;
-    
-    final datagram = _socket!.receive();
-    if (datagram == null) return;
+    _logger.i('扫描 IP: $ipAddress');
     
     try {
-      final message = utf8.decode(datagram.data);
-      final data = jsonDecode(message) as Map<String, dynamic>;
+      final socket = await Socket.connect(
+        ipAddress,
+        _discoveryPort,
+        timeout: _connectionTimeout,
+      );
       
-      // 忽略自己的消息
-      if (data['id'] == _localDeviceId) return;
+      // 发送发现请求
+      final request = jsonEncode({
+        'type': 'discover_request',
+        'id': _localDeviceId,
+        'name': _localDeviceName,
+        'isBot': _isBot,
+        'roomId': _currentRoomId,
+        'roomName': _currentRoomName,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
       
-      _handleDiscoverMessage(data, datagram.address.address);
+      socket.writeln(request);
+      
+      // 等待响应
+      String buffer = '';
+      final completer = Completer<bool>();
+      
+      socket.listen(
+        (data) {
+          buffer += utf8.decode(data);
+          while (buffer.contains('\n')) {
+            final index = buffer.indexOf('\n');
+            final messageStr = buffer.substring(0, index);
+            buffer = buffer.substring(index + 1);
+            
+            try {
+              final data = jsonDecode(messageStr);
+              _handleDiscoveryResponse(data, ipAddress);
+              if (!completer.isCompleted) {
+                completer.complete(true);
+              }
+            } catch (e) {
+              _logger.w('解析响应失败: $e');
+            }
+          }
+        },
+        onError: (error) {
+          _logger.e('连接错误: $error');
+          if (!completer.isCompleted) {
+            completer.complete(false);
+          }
+        },
+        onDone: () {
+          if (!completer.isCompleted) {
+            completer.complete(false);
+          }
+        },
+      );
+      
+      // 超时处理
+      Future.delayed(_connectionTimeout, () {
+        if (!completer.isCompleted) {
+          socket.destroy();
+          completer.complete(false);
+        }
+      });
+      
+      return await completer.future;
     } catch (e) {
-      _logger.w('解析发现消息失败: $e');
+      _logger.w('扫描 $ipAddress 失败: $e');
+      return false;
     }
   }
   
-  /// 处理发现消息
-  void _handleDiscoverMessage(Map<String, dynamic> data, String ipAddress) {
-    // 添加设备
+  /// 扫描多个 IP 地址
+  Future<void> scanIPs(List<String> ipAddresses) async {
+    _isScanning = true;
+    _notifyDevices();
+    
+    // 并发扫描所有 IP
+    final results = await Future.wait(
+      ipAddresses.map((ip) => scanIP(ip)),
+    );
+    
+    _isScanning = false;
+    _notifyDevices();
+    
+    final foundCount = results.where((r) => r).length;
+    _logger.i('扫描完成: ${ipAddresses.length} 个地址，发现 $foundCount 个设备');
+  }
+  
+  /// 处理入站连接
+  void _handleIncomingConnection(Socket socket) {
+    _logger.i('收到连接: ${socket.remoteAddress.address}');
+    
+    String buffer = '';
+    
+    socket.listen(
+      (data) {
+        buffer += utf8.decode(data);
+        
+        while (buffer.contains('\n')) {
+          final index = buffer.indexOf('\n');
+          final messageStr = buffer.substring(0, index);
+          buffer = buffer.substring(index + 1);
+          
+          try {
+            final data = jsonDecode(messageStr);
+            _handleIncomingMessage(data, socket);
+          } catch (e) {
+            _logger.w('解析消息失败: $e');
+          }
+        }
+      },
+      onError: (error) {
+        _logger.e('连接错误: $error');
+        socket.destroy();
+      },
+      onDone: () {
+        socket.destroy();
+      },
+    );
+  }
+  
+  /// 处理入站消息
+  void _handleIncomingMessage(Map<String, dynamic> data, Socket socket) {
+    final type = data['type'] as String?;
+    
+    if (type == 'discover_request') {
+      // 收到发现请求，回复自己的信息
+      _handleDiscoverRequest(data, socket);
+    }
+  }
+  
+  /// 处理发现请求
+  void _handleDiscoverRequest(Map<String, dynamic> data, Socket socket) {
+    final remoteId = data['id'] as String?;
+    if (remoteId == null || remoteId == _localDeviceId) return;
+    
+    // 记录请求方信息
     final device = DiscoveredDevice.fromJson({
       ...data,
-      'ip': ipAddress,
+      'ip': socket.remoteAddress.address,
     });
     
     _devices[device.id] = device;
     _notifyDevices();
     
-    // 如果有房间信息，添加到房间列表
+    // 如果对方有房间，记录房间
     if (data['roomId'] != null && data['roomName'] != null) {
       final room = DiscoveredRoom.fromJson({
         'roomId': data['roomId'],
@@ -241,31 +357,91 @@ class LanDiscoveryService {
       _notifyRooms();
     }
     
-    _logger.i('发现设备: ${device.name} ($ipAddress)');
+    // 回复自己的信息
+    final response = jsonEncode({
+      'type': 'discover_response',
+      'id': _localDeviceId,
+      'name': _localDeviceName,
+      'isBot': _isBot,
+      'roomId': _currentRoomId,
+      'roomName': _currentRoomName,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+    
+    socket.writeln(response);
+    
+    _logger.i('发现设备: ${device.name}');
   }
   
-  /// 开始清理过期设备
-  void _startCleanup() {
-    _cleanupTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      _cleanup();
+  /// 处理发现响应
+  void _handleDiscoveryResponse(Map<String, dynamic> data, String ipAddress) {
+    final remoteId = data['id'] as String?;
+    if (remoteId == null || remoteId == _localDeviceId) return;
+    
+    final device = DiscoveredDevice.fromJson({
+      ...data,
+      'ip': ipAddress,
     });
+    
+    _devices[device.id] = device;
+    _notifyDevices();
+    
+    // 如果对方有房间，记录房间
+    if (data['roomId'] != null && data['roomName'] != null) {
+      final room = DiscoveredRoom.fromJson({
+        'roomId': data['roomId'],
+        'roomName': data['roomName'],
+        'hostId': data['id'],
+        'hostName': data['name'],
+      });
+      
+      _rooms[room.id] = room;
+      _notifyRooms();
+    }
+    
+    _logger.i('收到设备响应: ${device.name}');
+  }
+  
+  /// 手动添加设备（用于 Tailscale）
+  Future<bool> addDeviceManually(String ipAddress) async {
+    _logger.i('手动添加设备: $ipAddress');
+    
+    final found = await scanIP(ipAddress);
+    if (!found) {
+      _errorController.add('无法连接到 $ipAddress');
+    }
+    
+    return found;
+  }
+  
+  /// 添加已知 IP（用于局域网扫描）
+  void addKnownIP(String ip) {
+    if (!_knownIPs.contains(ip)) {
+      _knownIPs.add(ip);
+    }
+  }
+  
+  /// 扫描已知 IP
+  Future<void> scanKnownIPs() async {
+    if (_knownIPs.isEmpty) {
+      _logger.i('没有已知的 IP 地址');
+      return;
+    }
+    
+    await scanIPs(_knownIPs);
   }
   
   /// 清理过期设备
-  void _cleanup() {
+  void cleanupExpiredDevices() {
     final now = DateTime.now();
-    final timeout = _deviceTimeout;
     
     _devices.removeWhere((id, device) {
-      final expired = now.difference(device.discoveredAt) > timeout;
-      if (expired) {
-        _logger.i('设备过期: ${device.name}');
-      }
+      final expired = now.difference(device.discoveredAt) > _deviceTimeout;
       return expired;
     });
     
     _rooms.removeWhere((id, room) {
-      final expired = now.difference(room.discoveredAt) > timeout;
+      final expired = now.difference(room.discoveredAt) > _deviceTimeout;
       return expired;
     });
     
@@ -275,12 +451,16 @@ class LanDiscoveryService {
   
   /// 通知设备列表更新
   void _notifyDevices() {
-    _devicesController.add(devices);
+    if (!_devicesController.isClosed) {
+      _devicesController.add(devices);
+    }
   }
   
   /// 通知房间列表更新
   void _notifyRooms() {
-    _roomsController.add(rooms);
+    if (!_roomsController.isClosed) {
+      _roomsController.add(rooms);
+    }
   }
   
   /// 清理资源
@@ -288,5 +468,6 @@ class LanDiscoveryService {
     stop();
     _devicesController.close();
     _roomsController.close();
+    _errorController.close();
   }
 }
