@@ -14,25 +14,39 @@ class MainActivity : FlutterActivity() {
     private val CHANNEL_FILE = "com.example.openclaw_app/file"
     private val PICK_FILE_REQUEST_CODE = 1001
     private var filePickerResult: MethodChannel.Result? = null
+    
+    // 语音识别管理器
+    private var speechManager: SpeechRecognizerManager? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // 语音识别 Channel（已有）
+        // 初始化语音识别管理器
+        speechManager = SpeechRecognizerManager(this)
+
+        // 语音识别 Channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_SPEECH).setMethodCallHandler { call, result ->
-            // ... 语音识别代码保持不变
             when (call.method) {
                 "initialize" -> {
-                    result.success(true)
+                    val success = speechManager?.initialize() ?: false
+                    result.success(success)
                 }
                 "listen" -> {
-                    result.notImplemented()
+                    speechManager?.startListening(result)
+                }
+                "stop" -> {
+                    speechManager?.stopListening()
+                    result.success(true)
+                }
+                "destroy" -> {
+                    speechManager?.destroy()
+                    result.success(true)
                 }
                 else -> result.notImplemented()
             }
         }
 
-        // 文件选择 Channel（新增）
+        // 文件选择 Channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_FILE).setMethodCallHandler { call, result ->
             when (call.method) {
                 "pickFile" -> {
@@ -132,5 +146,10 @@ class MainActivity : FlutterActivity() {
             }
         }
         return size
+    }
+
+    override fun onDestroy() {
+        speechManager?.destroy()
+        super.onDestroy()
     }
 }

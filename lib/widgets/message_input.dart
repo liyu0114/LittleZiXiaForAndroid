@@ -5,6 +5,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../services/voice/asr_service.dart';
 import '../services/file/file_picker_service.dart';
 
@@ -155,18 +156,101 @@ class _MessageInputState extends State<MessageInput> {
   }
 
   Future<void> _startVoiceInput() async {
-    if (!_asrService.isInitialized) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('语音识别未初始化')),
-      );
-      return;
+    // 检查麦克风权限
+    final micStatus = await Permission.microphone.status;
+    if (!micStatus.isGranted) {
+      final result = await Permission.microphone.request();
+      if (!result.isGranted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('需要麦克风权限才能使用语音输入'),
+              action: SnackBarAction(
+                label: '设置',
+                onPressed: () => openAppSettings(),
+              ),
+            ),
+          );
+        }
+        return;
+      }
     }
+
+    // 检查语音识别是否已初始化
+    if (!_asrService.isInitialized) {
+      // 尝试重新初始化
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('正在初始化语音识别...')),
+      );
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      if (!_asrService.isInitialized) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('语音识别初始化失败，请重试')),
+          );
+        }
+        return;
+      }
+    }
+
+    // 显示正在监听的提示
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 12),
+              Text('正在聆听，请说话...'),
+            ],
+          ),
+          duration: Duration(seconds: 10),
+        ),
+      );
+    }
+
     setState(() => _isRecording = true);
-    final result = await _asrService.listen();
-    setState(() => _isRecording = false);
-    if (result != null && result.isNotEmpty) {
-      widget.controller.text = result;
-      widget.onVoiceInput?.call(result);
+    
+    try {
+      final result = await _asrService.listen();
+      
+      setState(() => _isRecording = false);
+      
+      // 清除监听提示
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      }
+      
+      if (result != null && result.isNotEmpty) {
+        widget.controller.text = result;
+        widget.onVoiceInput?.call(result);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('识别结果: $result')),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('未识别到语音，请重试')),
+          );
+        }
+      }
+    } catch (e) {
+      setState(() => _isRecording = false);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('语音识别出错: $e')),
+        );
+      }
     }
   }
 
