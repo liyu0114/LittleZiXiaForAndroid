@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../providers/app_state.dart';
@@ -185,15 +186,91 @@ class _MessageBubble extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                   ],
-                  SelectableText(
-                    message.content.isEmpty && isStreaming
-                        ? '思考中...'
-                        : message.content,
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: hasError ? Colors.red.shade900 : null,
+                  
+                  // 显示图片
+                  if (message.hasImage) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxWidth: 200,
+                          maxHeight: 200,
+                        ),
+                        child: Image.file(
+                          File(message.imagePath!),
+                          fit: BoxFit.cover,
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 8),
+                  ],
+                  
+                  // 显示视频
+                  if (message.hasVideo) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.videocam, size: 24),
+                          const SizedBox(width: 8),
+                          const Text('视频文件'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  
+                  // 显示文件
+                  if (message.hasFile) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.attach_file, size: 24),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  message.fileName ?? '文件',
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                if (message.fileSize != null)
+                                  Text(
+                                    '${(message.fileSize! / 1024).toStringAsFixed(1)} KB',
+                                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  
+                  // 显示文字
+                  if (message.content.isNotEmpty)
+                    SelectableText(
+                      message.content.isEmpty && isStreaming
+                          ? '思考中...'
+                          : message.content,
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: hasError ? Colors.red.shade900 : null,
+                      ),
+                    ),
                   if (isStreaming && message.content.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     const SizedBox(

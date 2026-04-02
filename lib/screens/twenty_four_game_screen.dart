@@ -264,8 +264,8 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
           const SizedBox(height: 32),
           FilledButton.icon(
             onPressed: _createRoom,
-            icon: const Icon(Icons.add),
-            label: const Text('创建房间'),
+            icon: const Icon(Icons.play_arrow),
+            label: const Text('单机游戏'),
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(

@@ -1,11 +1,13 @@
-// 24点联网对战屏幕
+// 24点联网对战屏幕 - 主机权威架构
 //
-// 支持多设备联网玩 24 点游戏
+// 架构说明：
+// - 主机：运行游戏逻辑，每秒广播状态
+// - 客户端：只显示状态，操作发送给主机
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/games/twenty_four_game.dart';
 import '../services/games/network_game_service.dart';
-import '../services/chat/lan_discovery.dart';
 
 class NetworkGameScreen extends StatefulWidget {
   const NetworkGameScreen({super.key});
@@ -15,19 +17,25 @@ class NetworkGameScreen extends StatefulWidget {
 }
 
 class _NetworkGameScreenState extends State<NetworkGameScreen> {
-  final TwentyFourGameService _gameService = TwentyFourGameService();
-  final LanDiscoveryService _discoveryService = LanDiscoveryService();
+  // 网络服务
   NetworkGameService? _networkService;
   
-  GameRoom? _room;
-  List<int> _numbers = [];
-  int _timeLeft = 60;
-  String? _message;
-  String _expression = '';
+  // 游戏服务（仅主机使用）
+  TwentyFourGameService? _gameService;
+  
+  // 游戏状态
+  Map<String, dynamic> _gameState = {};
   
   // 网络状态
   bool _isHost = false;
   bool _isConnected = false;
+  
+  // 本地玩家信息
+  String? _localPlayerId;
+  String _localPlayerName = '玩家';
+  
+  // 表达式输入
+  String _expression = '';
   
   // 配置选项
   final int _botDelay = 90;
@@ -36,115 +44,126 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
   @override
   void initState() {
     super.initState();
-    _initServices();
+    _localPlayerId = 'player_${DateTime.now().millisecondsSinceEpoch}';
   }
 
-  void _initServices() {
-    final playerId = 'player_${DateTime.now().millisecondsSinceEpoch}';
+  @override
+  void dispose() {
+    _gameService?.dispose();
+    _networkService?.dispose();
+    super.dispose();
+  }
+
+  /// 创建房间（成为主机）
+  void _createRoom(String roomName) async {
+    _isHost = true;
+    _isConnected = true;
     
-    _gameService.initPlayer(
-      playerId: playerId,
-      playerName: '玩家',
+    // 初始化网络服务
+    _networkService = NetworkGameService();
+    await _networkService!.initAsHost(
+      playerId: _localPlayerId!,
+      playerName: _localPlayerName,
+      port: 18791,
     );
     
-    _gameService.botDelaySeconds = _botDelay;
-    _gameService.rushTimeSeconds = _rushTime;
-    
-    // 初始化发现服务
-    _discoveryService.init(
-      deviceId: playerId,
-      deviceName: '玩家',
-      isBot: false,
+    // 初始化游戏服务
+    _gameService = TwentyFourGameService();
+    _gameService!.initPlayer(
+      playerId: _localPlayerId!,
+      playerName: _localPlayerName,
     );
+    _gameService!.botDelaySeconds = _botDelay;
+    _gameService!.rushTimeSeconds = _rushTime;
     
-    // 监听发现的设备
-    _discoveryService.devicesStream.listen((devices) {
-      // 可以在这里更新 UI，显示发现的设备
-      // if (mounted) {
-      //   setState(() {
-      //     _nearbyDevices = devices;
-      //   });
-      // }
-    });
+    // 创建房间
+    final room = _gameService!.createRoom(roomName);
+    _gameService!.joinRoom(GamePlayer(
+      id: _localPlayerId!,
+      name: _localPlayerName,
+    ));
     
-    // 监听游戏状态
-    _gameService.stateStream.listen((state) {
+    // 监听游戏状态变化
+    _gameService!.stateStream.listen((state) {
       if (mounted) {
         setState(() {
-          _room = state['room'];
-          _numbers = state['numbers'] ?? [];
-          _timeLeft = state['timeLeft'] ?? 60;
+          _gameState = state;
         });
       }
     });
     
     // 监听计时器
-    _gameService.timerStream.listen((time) {
+    _gameService!.timerStream.listen((time) {
       if (mounted) {
-        setState(() => _timeLeft = time);
+        setState(() {
+          _gameState['timeLeft'] = time;
+        });
+        // 每秒广播状态给客户端
+        _broadcastGameState();
       }
     });
     
     // 监听消息
-    _gameService.messageStream.listen((msg) {
+    _gameService!.messageStream.listen((msg) {
       if (mounted) {
-        setState(() => _message = msg);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg)),
+        );
       }
     });
-  }
-
-  void _createNetworkRoom() async {
-    // 初始化网络服务
-    _networkService = NetworkGameService(_gameService);
-    await _networkService!.init(
-      playerId: _gameService.currentUserId!,
-      playerName: '玩家',
-      port: 18791,
-    );
     
-    // 创建房间
-    final room = _gameService.createRoom('联网24点');
-    _gameService.joinRoom(GamePlayer(
-      id: _gameService.currentUserId!,
-      name: '玩家',
-    ));
-    
-    setState(() {
-      _room = room;
-      _isHost = true;
-      _isConnected = true;
+    // 监听网络消息（来自客户端的操作）
+    _networkService!.stateStream.listen((data) {
+      _handleNetworkAction(data);
     });
     
-    // 广播房间
-    _discoveryService.setCurrentRoom(room.id, room.name);
-    await _discoveryService.start();
+    setState(() {
+      _gameState = {
+        'room': room,
+        'numbers': [],
+        'timeLeft': 60 + _botDelay,
+      };
+    });
     
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('房间已创建，等待其他玩家加入...')),
     );
   }
 
-  void _joinNetworkRoom(String hostIp) async {
-    // 初始化网络服务
-    _networkService = NetworkGameService(_gameService);
-    await _networkService!.init(
-      playerId: _gameService.currentUserId!,
-      playerName: '玩家',
-      port: 18791,
-    );
+  /// 加入房间（成为客户端）
+  void _joinRoom(String hostIp) async {
+    _isHost = false;
     
-    // 连接到主机
+    _networkService = NetworkGameService();
+    
     final success = await _networkService!.connectToHost(
-      hostId: 'host_$hostIp',
-      hostName: '游戏主机',
+      playerId: _localPlayerId!,
+      playerName: _localPlayerName,
       ipAddress: hostIp,
       port: 18791,
     );
     
     if (success) {
       setState(() {
-        _isHost = false;
         _isConnected = true;
+      });
+      
+      // 监听主机发来的游戏状态
+      _networkService!.stateStream.listen((state) {
+        if (mounted) {
+          setState(() {
+            _gameState = state;
+          });
+        }
+      });
+      
+      // 监听网络消息
+      _networkService!.messageStream.listen((msg) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(msg)),
+          );
+        }
       });
       
       ScaffoldMessenger.of(context).showSnackBar(
@@ -155,6 +174,177 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
         const SnackBar(content: Text('连接失败')),
       );
     }
+  }
+
+  /// 处理网络操作（主机）
+  void _handleNetworkAction(Map<String, dynamic> data) {
+    if (!_isHost || _gameService == null) return;
+    
+    final action = data['action'];
+    
+    switch (action) {
+      case 'playerJoined':
+        _gameService!.joinRoom(GamePlayer(
+          id: data['playerId'],
+          name: data['playerName'],
+          isBot: false,
+        ));
+        _broadcastPlayerList();
+        break;
+        
+      case 'rush':
+        _handleRemoteRush(data['playerId'], data['playerName']);
+        break;
+        
+      case 'submitAnswer':
+        _handleRemoteAnswer(data['playerId'], data['playerName'], data['answer']);
+        break;
+        
+      case 'addBot':
+        _gameService!.addBot();
+        _broadcastPlayerList();
+        break;
+        
+      case 'startGame':
+        _startGame();
+        break;
+    }
+  }
+
+  /// 处理远程抢答（主机）
+  void _handleRemoteRush(String playerId, String playerName) {
+    if (_gameService?.currentRoom?.state != GameState.playing) return;
+    
+    final originalId = _gameService!.currentUserId;
+    _gameService!.initPlayer(playerId: playerId, playerName: playerName);
+    
+    if (_gameService!.rush()) {
+      _broadcastGameState();
+    }
+    
+    if (originalId != null) {
+      _gameService!.initPlayer(playerId: originalId, playerName: _localPlayerName);
+    }
+  }
+
+  /// 处理远程答案（主机）
+  void _handleRemoteAnswer(String playerId, String playerName, String answer) {
+    if (_gameService?.currentRoom?.state != GameState.rushing) return;
+    if (_gameService?.currentRoom?.rushingPlayerId != playerId) return;
+    
+    final originalId = _gameService!.currentUserId;
+    _gameService!.initPlayer(playerId: playerId, playerName: playerName);
+    
+    _gameService!.submitAnswer(answer);
+    
+    if (originalId != null) {
+      _gameService!.initPlayer(playerId: originalId, playerName: _localPlayerName);
+    }
+    
+    _broadcastGameState();
+  }
+
+  /// 广播游戏状态（主机）
+  void _broadcastGameState() {
+    if (!_isHost || _networkService == null) return;
+    
+    final room = _gameService?.currentRoom;
+    final state = {
+      'room': room?.toJson(),
+      'numbers': _gameService?.currentNumbers ?? [],
+      'timeLeft': _gameService?.timeLeft ?? 60,
+      'botDelay': _botDelay,
+      'rushTime': _rushTime,
+    };
+    
+    _networkService!.broadcastGameState(state);
+  }
+
+  /// 广播玩家列表（主机）
+  void _broadcastPlayerList() {
+    if (!_isHost || _networkService == null) return;
+    
+    final players = _gameService?.currentRoom?.players.map((p) => {
+      'id': p.id,
+      'name': p.name,
+      'isBot': p.isBot,
+      'score': p.score,
+    }).toList() ?? [];
+    
+    _networkService!.broadcastPlayerList(players);
+  }
+
+  /// 开始游戏（主机）
+  void _startGame() {
+    if (!_isHost || _gameService == null) return;
+    
+    _expression = '';
+    _gameService!.startGame();
+    _broadcastGameState();
+  }
+
+  /// 抢答
+  void _rush() {
+    if (_isHost && _gameService != null) {
+      _gameService!.rush();
+      _broadcastGameState();
+    } else if (_networkService != null) {
+      _networkService!.sendRush();
+    }
+    
+    setState(() {
+      _expression = '';
+    });
+  }
+
+  /// 提交答案
+  void _submitAnswer() {
+    if (_expression.isEmpty) return;
+    
+    if (_isHost && _gameService != null) {
+      _gameService!.submitAnswer(_expression);
+      _broadcastGameState();
+    } else if (_networkService != null) {
+      _networkService!.sendAnswer(_expression);
+    }
+    
+    setState(() {
+      _expression = '';
+    });
+  }
+
+  /// 添加机器人
+  void _addBot() {
+    if (_isHost && _gameService != null) {
+      _gameService!.addBot();
+      _broadcastPlayerList();
+    } else if (_networkService != null) {
+      _networkService!.requestAddBot();
+    }
+  }
+
+  /// 下一题（主机）
+  void _nextRound() {
+    if (!_isHost || _gameService == null) return;
+    
+    _expression = '';
+    _gameService!.nextRound();
+    _broadcastGameState();
+  }
+
+  /// 按键处理
+  void _onKeyPress(String key) {
+    setState(() {
+      if (key == 'DEL') {
+        if (_expression.isNotEmpty) {
+          _expression = _expression.substring(0, _expression.length - 1);
+        }
+      } else if (key == 'CLR') {
+        _expression = '';
+      } else {
+        _expression += key;
+      }
+    });
   }
 
   void _showJoinDialog() {
@@ -190,7 +380,7 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
               final ip = ipController.text.trim();
               if (ip.isNotEmpty) {
                 Navigator.pop(context);
-                _joinNetworkRoom(ip);
+                _joinRoom(ip);
               }
             },
             child: const Text('加入'),
@@ -200,50 +390,66 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
     );
   }
 
-  void _startNetworkGame() {
-    _expression = '';
-    _message = null;
-    _gameService.botDelaySeconds = _botDelay;
-    _gameService.rushTimeSeconds = _rushTime;
-    _gameService.startGame();
-  }
-
-  void _rush() {
-    _expression = '';
-    _gameService.rush();
-  }
-
-  void _submitAnswer() {
-    final result = _gameService.submitAnswer(_expression);
-    if (result == true) {
-      setState(() => _message = '🎉 正确！');
-    }
-  }
-
-  void _onKeyPress(String key) {
-    setState(() {
-      if (key == 'DEL') {
-        if (_expression.isNotEmpty) {
-          _expression = _expression.substring(0, _expression.length - 1);
-        }
-      } else if (key == 'CLR') {
-        _expression = '';
-      } else {
-        _expression += key;
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _gameService.dispose();
-    _networkService?.dispose();
-    _discoveryService.dispose();
-    super.dispose();
+  /// 显示创建房间对话框
+  void _showCreateRoomDialog() {
+    final roomNameController = TextEditingController(text: '龙虾的房间');
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('创建房间'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: roomNameController,
+              decoration: const InputDecoration(
+                labelText: '房间名称',
+                hintText: '给你的房间起个名字',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _createRoom(roomNameController.text.trim().isEmpty 
+                  ? '龙虾的房间' 
+                  : roomNameController.text.trim());
+            },
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final room = _gameState['room'];
+    final numbers = _gameState['numbers'] as List? ?? [];
+    final timeLeft = _gameState['timeLeft'] as int? ?? 60;
+    
+    // 解析房间状态
+    GameState gameState = GameState.waiting;
+    if (room != null && room is GameRoom) {
+      gameState = room.state;
+    } else if (room != null && room is Map) {
+      final stateStr = room['state'] as String?;
+      if (stateStr != null) {
+        gameState = GameState.values.firstWhere(
+          (e) => e.name == stateStr,
+          orElse: () => GameState.waiting,
+        );
+      }
+    }
+    
     return Scaffold(
       appBar: AppBar(
         title: const Text('联网24点'),
@@ -255,11 +461,11 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
             ),
         ],
       ),
-      body: _room == null
+      body: room == null
           ? _buildLobby()
-          : _room!.state == GameState.waiting
-              ? _buildWaitingRoom()
-              : _buildGameView(),
+          : gameState == GameState.waiting
+              ? _buildWaitingRoom(room)
+              : _buildGameView(room, numbers, timeLeft, gameState),
     );
   }
 
@@ -281,7 +487,7 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
             ),
             const SizedBox(height: 32),
             FilledButton.icon(
-              onPressed: _createNetworkRoom,
+              onPressed: _showCreateRoomDialog,
               icon: const Icon(Icons.add),
               label: const Text('创建房间'),
             ),
@@ -297,7 +503,14 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
     );
   }
 
-  Widget _buildWaitingRoom() {
+  Widget _buildWaitingRoom(dynamic room) {
+    List<dynamic> players = [];
+    if (room is GameRoom) {
+      players = room.players;
+    } else if (room is Map) {
+      players = room['players'] ?? [];
+    }
+    
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -312,13 +525,12 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('房间: ${_room!.name}', 
+                      Text('房间: ${room is GameRoom ? room.name : room['name'] ?? '联网24点'}', 
                            style: Theme.of(context).textTheme.titleLarge),
-                      if (_isHost)
-                        Chip(
-                          label: Text('${_room!.players.length}/${_room!.maxPlayers}'),
-                          backgroundColor: Colors.green.shade100,
-                        ),
+                      Chip(
+                        label: Text('${players.length}/4'),
+                        backgroundColor: Colors.green.shade100,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -334,15 +546,19 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
           const SizedBox(height: 8),
           Expanded(
             child: ListView.builder(
-              itemCount: _room!.players.length,
+              itemCount: players.length,
               itemBuilder: (context, index) {
-                final player = _room!.players[index];
+                final player = players[index];
+                final name = player is GamePlayer ? player.name : player['name'] ?? 'Unknown';
+                final isBot = player is GamePlayer ? player.isBot : player['isBot'] ?? false;
+                final score = player is GamePlayer ? player.score : player['score'] ?? 0;
+                
                 return ListTile(
                   leading: CircleAvatar(
-                    child: Icon(player.isBot ? Icons.smart_toy : Icons.person),
+                    child: Icon(isBot ? Icons.smart_toy : Icons.person),
                   ),
-                  title: Text(player.name),
-                  trailing: Text('得分: ${player.score}'),
+                  title: Text(name),
+                  trailing: Text('得分: $score'),
                 );
               },
             ),
@@ -353,7 +569,7 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () => _gameService.addBot(),
+                    onPressed: _addBot,
                     icon: const Icon(Icons.smart_toy),
                     label: const Text('添加机器人'),
                   ),
@@ -361,7 +577,7 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: _room!.players.length >= 2 ? _startNetworkGame : null,
+                    onPressed: players.length >= 2 ? _startGame : null,
                     icon: const Icon(Icons.play_arrow),
                     label: const Text('开始游戏'),
                   ),
@@ -392,10 +608,38 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
     );
   }
 
-  Widget _buildGameView() {
-    final isRushing = _room?.state == GameState.rushing;
-    final isMyRush = _room?.rushingPlayerId == _gameService.currentUserId;
-    final isFinished = _room?.state == GameState.finished;
+  Widget _buildGameView(dynamic room, List numbers, int timeLeft, GameState gameState) {
+    final isRushing = gameState == GameState.rushing;
+    final isFinished = gameState == GameState.finished;
+    
+    // 获取抢答玩家 ID
+    String? rushingPlayerId;
+    if (room is GameRoom) {
+      rushingPlayerId = room.rushingPlayerId;
+    } else if (room is Map) {
+      rushingPlayerId = room['rushingPlayerId'];
+    }
+    
+    final isMyRush = rushingPlayerId == _localPlayerId;
+    
+    // 获取获胜者信息
+    String? winnerId;
+    String? winnerAnswer;
+    if (room is GameRoom) {
+      winnerId = room.winnerId;
+      winnerAnswer = room.winnerAnswer;
+    } else if (room is Map) {
+      winnerId = room['winnerId'];
+      winnerAnswer = room['winnerAnswer'];
+    }
+    
+    // 获取玩家列表
+    List<dynamic> players = [];
+    if (room is GameRoom) {
+      players = room.players;
+    } else if (room is Map) {
+      players = room['players'] ?? [];
+    }
     
     return Column(
       children: [
@@ -408,14 +652,14 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.timer, color: _timeLeft <= 10 ? Colors.red : null),
+                  Icon(Icons.timer, color: timeLeft <= 10 ? Colors.red : null),
                   const SizedBox(width: 8),
                   Text(
-                    isRushing ? '抢答: $_timeLeft 秒' : '剩余: $_timeLeft 秒',
+                    isRushing ? '抢答: $timeLeft 秒' : '剩余: $timeLeft 秒',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: _timeLeft <= 10 ? Colors.red : null,
+                      color: timeLeft <= 10 ? Colors.red : null,
                     ),
                   ),
                 ],
@@ -434,26 +678,12 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
         ),
         
         // 数字卡片
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: _numbers.map((n) => _buildNumberCard(n)).toList(),
-          ),
-        ),
-        
-        // 消息提示
-        if (_message != null)
+        if (numbers.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Card(
-              color: _message!.contains('正确') || _message!.contains('获胜')
-                  ? Colors.green.shade100
-                  : Colors.red.shade100,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(_message!, style: const TextStyle(fontSize: 16)),
-              ),
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: numbers.map((n) => _buildNumberCard(n as int)).toList(),
             ),
           ),
         
@@ -480,11 +710,11 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
         // 自定义小键盘
         if (!isFinished && isRushing && isMyRush)
           Expanded(
-            child: _buildKeypad(),
+            child: _buildKeypad(numbers),
           ),
         
         // 抢答按钮
-        if (_room?.state == GameState.playing)
+        if (gameState == GameState.playing)
           Padding(
             padding: const EdgeInsets.all(16),
             child: SizedBox(
@@ -499,34 +729,75 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
             ),
           ),
         
-        // 获胜者信息
-        if (isFinished && _room?.winnerId != null)
+        // 获胜者信息 + 下一题按钮
+        if (isFinished)
           Padding(
             padding: const EdgeInsets.all(16),
             child: Card(
-              color: Colors.green.shade100,
+              color: winnerId != null ? Colors.green.shade100 : Colors.orange.shade100,
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.emoji_events, color: Colors.amber, size: 32),
-                        const SizedBox(width: 8),
+                    // 有人获胜
+                    if (winnerId != null) ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.emoji_events, color: Colors.amber, size: 32),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${_getPlayerName(players, winnerId)} 获胜！',
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      if (winnerAnswer != null) ...[
+                        const SizedBox(height: 8),
                         Text(
-                          '${_room!.players.firstWhere((p) => p.id == _room!.winnerId).name} 获胜！',
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          '答案: $winnerAnswer = 24',
+                          style: const TextStyle(fontSize: 16, fontFamily: 'monospace'),
                         ),
                       ],
-                    ),
-                    if (_room!.winnerAnswer != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        '答案: ${_room!.winnerAnswer} = 24',
-                        style: const TextStyle(fontSize: 16, fontFamily: 'monospace'),
+                    ] else ...[
+                      // 没人答对
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.timer_off, color: Colors.orange, size: 32),
+                          const SizedBox(width: 8),
+                          const Text(
+                            '时间到！无人答对',
+                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                        ],
                       ),
                     ],
+                    const SizedBox(height: 16),
+                    
+                    // 下一题按钮（主机/单机）
+                    if (_isHost)
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: FilledButton.icon(
+                          onPressed: _nextRound,
+                          icon: const Icon(Icons.skip_next),
+                          label: const Text('新题目'),
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '等待主机出下一题...',
+                          style: TextStyle(color: Colors.blue.shade700),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -534,6 +805,19 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
           ),
       ],
     );
+  }
+
+  String _getPlayerName(List<dynamic> players, String? playerId) {
+    if (playerId == null) return 'Unknown';
+    
+    for (final player in players) {
+      final id = player is GamePlayer ? player.id : player['id'];
+      if (id == playerId) {
+        return player is GamePlayer ? player.name : player['name'] ?? 'Unknown';
+      }
+    }
+    
+    return 'Unknown';
   }
 
   Widget _buildNumberCard(int number) {
@@ -550,7 +834,7 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
     );
   }
 
-  Widget _buildKeypad() {
+  Widget _buildKeypad(List numbers) {
     return Padding(
       padding: const EdgeInsets.all(8),
       child: Column(
@@ -558,7 +842,7 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
           Expanded(
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: _numbers.map((n) => _buildKey('$n')).toList(),
+              children: numbers.map((n) => _buildKey('$n')).toList(),
             ),
           ),
           Expanded(

@@ -1,22 +1,27 @@
-// 网络游戏服务
+// 网络游戏服务 - 主机权威架构
 //
-// 为24点游戏添加联网对战功能
+// 设计原则：
+// - 主机是权威：所有游戏逻辑在主机执行
+// - 客户端是"显示器"：只显示主机发来的状态
+// - 高频同步：主机每秒广播游戏状态（包括倒计时）
+// - 操作转发：客户端操作发送给主机，主机处理后再广播
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:logger/logger.dart';
-import 'twenty_four_game.dart';
+import 'package:logger/logger.dart';
 
 /// 网络游戏消息类型
 enum NetworkGameMessageType {
   joinGame,      // 加入游戏
   leaveGame,     // 离开游戏
-  gameState,     // 游戏状态同步
+  gameState,     // 游戏状态同步（高频，每秒）
   rush,          // 抢答
   submitAnswer,  // 提交答案
   startGame,     // 开始游戏
-  restartGame,   // 重新开始
+  addBot,        // 添加机器人
+  playerList,    // 玩家列表更新
 }
 
 /// 网络游戏消息
@@ -65,54 +70,136 @@ class NetworkGameMessage {
   }
 }
 
+/// 远程玩家信息
+class RemotePlayer {
+  final String id;
+  final String name;
+  Socket socket;
+  
+  RemotePlayer({
+    required this.id,
+    required this.name,
+    required this.socket,
+  });
+}
+
 /// 网络游戏服务
 class NetworkGameService {
   final Logger _logger = Logger();
-  final TwentyFourGameService _gameService;
 
   // 本机信息
   String? _localPlayerId;
   String? _localPlayerName;
   int _localPort = 18791;
 
-  // 服务器
-  ServerSocket? _server;
+  // 是否是主机
+  bool _isHost = false;
+  bool get isHost => _isHost;
 
-  // 连接的玩家
-  final Map<String, Socket> _connections = {};
+  // 主机服务器
+  ServerSocket? _server;
+  
+  // 连接的玩家（主机用）
+  final Map<String, RemotePlayer> _players = {};
+  
+  // 连接到主机的 socket（客户端用）
+  Socket? _hostSocket;
+
+  // 状态广播定时器（主机用）
+  Timer? _broadcastTimer;
 
   // 流控制器
-  final _messageController = StreamController<NetworkGameMessage>.broadcast();
+  final _stateController = StreamController<Map<String, dynamic>>.broadcast();
+  final _messageController = StreamController<String>.broadcast();
 
-  /// 消息流
-  Stream<NetworkGameMessage> get messageStream => _messageController.stream;
+  /// 游戏状态流（客户端监听）
+  Stream<Map<String, dynamic>> get stateStream => _stateController.stream;
+  
+  /// 消息流（提示消息）
+  Stream<String> get messageStream => _messageController.stream;
 
-  /// 游戏服务
-  TwentyFourGameService get gameService => _gameService;
+  /// 当前游戏状态（客户端存储）
+  Map<String, dynamic> _gameState = {};
+  Map<String, dynamic> get gameState => _gameState;
 
-  NetworkGameService(this._gameService);
+  NetworkGameService();
 
-  /// 初始化服务
-  Future<void> init({
+  /// 作为主机初始化
+  Future<void> initAsHost({
     required String playerId,
     required String playerName,
-    int port = 18791,
+    required int port,
   }) async {
     _localPlayerId = playerId;
     _localPlayerName = playerName;
     _localPort = port;
+    _isHost = true;
 
     await _startServer();
-
-    // 监听游戏状态变化并广播
-    _gameService.stateStream.listen((state) {
-      _broadcastGameState(state);
-    });
-
-    _logger.i('网络游戏服务已启动 (端口: $port)');
+    _logger.i('主机服务已启动 (端口: $port)');
   }
 
-  /// 启动 TCP 服务器
+  /// 作为客户端连接
+  Future<bool> connectToHost({
+    required String playerId,
+    required String playerName,
+    required String ipAddress,
+    int port = 18791,
+  }) async {
+    _localPlayerId = playerId;
+    _localPlayerName = playerName;
+    _isHost = false;
+
+    try {
+      _logger.i('连接到主机: $ipAddress:$port');
+
+      _hostSocket = await Socket.connect(ipAddress, port, timeout: Duration(seconds: 5));
+
+      // 发送加入消息
+      _sendToSocket(_hostSocket!, NetworkGameMessage(
+        type: NetworkGameMessageType.joinGame,
+        fromId: _localPlayerId!,
+        fromName: _localPlayerName!,
+        payload: {},
+      ));
+
+      // 监听主机消息
+      String buffer = '';
+      _hostSocket!.listen(
+        (data) {
+          buffer += utf8.decode(data);
+          while (buffer.contains('\n')) {
+            final index = buffer.indexOf('\n');
+            final messageStr = buffer.substring(0, index);
+            buffer = buffer.substring(index + 1);
+
+            try {
+              final message = NetworkGameMessage.decode(messageStr);
+              _handleHostMessage(message);
+            } catch (e) {
+              _logger.e('解析消息失败: $e');
+            }
+          }
+        },
+        onError: (error) {
+          _logger.e('连接错误: $error');
+          _messageController.add('与主机断开连接');
+        },
+        onDone: () {
+          _logger.i('与主机断开');
+          _messageController.add('与主机断开连接');
+        },
+      );
+
+      _logger.i('已连接到主机');
+      return true;
+    } catch (e) {
+      _logger.e('连接失败: $e');
+      return false;
+    }
+  }
+
+  /// 启动 TCP 服务器（主机）
   Future<void> _startServer() async {
     try {
       _server = await ServerSocket.bind(
@@ -127,22 +214,21 @@ class NetworkGameService {
         },
       );
 
-      _logger.i('游戏服务器已启动: ${_server!.address.address}:$_localPort');
+      _logger.i('服务器已启动: ${_server!.address.address}:$_localPort');
     } catch (e) {
       _logger.e('启动服务器失败: $e');
     }
   }
 
-  /// 处理入站连接
+  /// 处理入站连接（主机）
   void _handleIncomingConnection(Socket socket) {
-    _logger.i('新玩家连接: ${socket.remoteAddress.address}:${socket.remotePort}');
+    _logger.i('新连接: ${socket.remoteAddress.address}:${socket.remotePort}');
 
     String buffer = '';
 
     socket.listen(
       (data) {
         buffer += utf8.decode(data);
-
         while (buffer.contains('\n')) {
           final index = buffer.indexOf('\n');
           final messageStr = buffer.substring(0, index);
@@ -150,7 +236,7 @@ class NetworkGameService {
 
           try {
             final message = NetworkGameMessage.decode(messageStr);
-            _handleMessage(message, socket);
+            _handleClientMessage(message, socket);
           } catch (e) {
             _logger.e('解析消息失败: $e');
           }
@@ -161,40 +247,46 @@ class NetworkGameService {
         socket.destroy();
       },
       onDone: () {
-        _logger.i('玩家断开: ${socket.remoteAddress.address}');
-        _handleDisconnection(socket);
+        _logger.i('连接断开');
+        _removePlayer(socket);
       },
     );
   }
 
-  /// 处理接收到的消息
-  void _handleMessage(NetworkGameMessage message, Socket socket) {
-    _logger.d('收到消息: ${message.type} from ${message.fromName}');
+  /// 处理客户端消息（主机）
+  void _handleClientMessage(NetworkGameMessage message, Socket socket) {
+    _logger.d('收到客户端消息: ${message.type} from ${message.fromName}');
 
     switch (message.type) {
       case NetworkGameMessageType.joinGame:
-        _handleJoinGame(message, socket);
+        _addPlayer(message, socket);
         break;
 
       case NetworkGameMessageType.rush:
-        _handleRemoteRush(message);
+        // 通知上层处理抢答（通过状态流）
+        _stateController.add({
+          'action': 'rush',
+          'playerId': message.fromId,
+          'playerName': message.fromName,
+        });
         break;
 
       case NetworkGameMessageType.submitAnswer:
-        _handleRemoteAnswer(message);
+        // 通知上层处理答案
+        _stateController.add({
+          'action': 'submitAnswer',
+          'playerId': message.fromId,
+          'playerName': message.fromName,
+          'answer': message.payload['answer'],
+        });
+        break;
+
+      case NetworkGameMessageType.addBot:
+        _stateController.add({'action': 'addBot'});
         break;
 
       case NetworkGameMessageType.startGame:
-        _gameService.startGame();
-        break;
-
-      case NetworkGameMessageType.restartGame:
-        _gameService.restart();
-        break;
-
-      case NetworkGameMessageType.gameState:
-        // 游戏状态同步由主机发送，客户端接收
-        _messageController.add(message);
+        _stateController.add({'action': 'startGame'});
         break;
 
       default:
@@ -202,148 +294,61 @@ class NetworkGameService {
     }
   }
 
-  /// 处理玩家加入
-  void _handleJoinGame(NetworkGameMessage message, Socket socket) {
-    _connections[message.fromId] = socket;
-
-    // 添加玩家到游戏
-    _gameService.joinRoom(GamePlayer(
+  /// 添加玩家（主机）
+  void _addPlayer(NetworkGameMessage message, Socket socket) {
+    final player = RemotePlayer(
       id: message.fromId,
       name: message.fromName,
-      isBot: false,
-    ));
+      socket: socket,
+    );
 
-    _logger.i('玩家加入: ${message.fromName}');
+    _players[player.id] = player;
+    _logger.i('玩家加入: ${player.name}');
 
-    // 广播当前游戏状态给新玩家
-    _sendGameState(message.fromId);
+    // 通知上层有新玩家加入
+    _stateController.add({
+      'action': 'playerJoined',
+      'playerId': player.id,
+      'playerName': player.name,
+    });
   }
 
-  /// 处理远程抢答
-  void _handleRemoteRush(NetworkGameMessage message) {
-    // TODO: 实现远程玩家抢答逻辑
-    _logger.i('远程玩家抢答: ${message.fromName}');
-  }
-
-  /// 处理远程答案
-  void _handleRemoteAnswer(NetworkGameMessage message) {
-    final answer = message.payload['answer'] as String?;
-    if (answer != null) {
-      _gameService.submitAnswer(answer);
-    }
-  }
-
-  /// 处理断开连接
-  void _handleDisconnection(Socket socket) {
-    final playerId = _connections.entries
-        .where((e) => e.value == socket)
+  /// 移除玩家（主机）
+  void _removePlayer(Socket socket) {
+    final playerId = _players.entries
+        .where((e) => e.value.socket == socket)
         .map((e) => e.key)
         .firstOrNull;
 
     if (playerId != null) {
-      _connections.remove(playerId);
-      _logger.i('玩家离开: $playerId');
+      final player = _players[playerId];
+      _players.remove(playerId);
+      _logger.i('玩家离开: ${player?.name}');
+
+      // 通知上层
+      _stateController.add({
+        'action': 'playerLeft',
+        'playerId': playerId,
+      });
     }
   }
 
-  /// 连接到主机
-  Future<bool> connectToHost({
-    required String hostId,
-    required String hostName,
-    required String ipAddress,
-    int port = 18791,
-  }) async {
-    try {
-      _logger.i('连接到主机: $hostName ($ipAddress:$port)');
-
-      final socket = await Socket.connect(ipAddress, port, timeout: Duration(seconds: 5));
-
-      _connections[hostId] = socket;
-
-      // 发送加入消息
-      final joinMessage = NetworkGameMessage(
-        type: NetworkGameMessageType.joinGame,
-        fromId: _localPlayerId!,
-        fromName: _localPlayerName!,
-        payload: {
-          'port': _localPort,
-        },
-      );
-
-      socket.writeln(joinMessage.encode());
-
-      // 监听消息
-      String buffer = '';
-      socket.listen(
-        (data) {
-          buffer += utf8.decode(data);
-          while (buffer.contains('\n')) {
-            final index = buffer.indexOf('\n');
-            final messageStr = buffer.substring(0, index);
-            buffer = buffer.substring(index + 1);
-
-            try {
-              final message = NetworkGameMessage.decode(messageStr);
-              _messageController.add(message);
-
-              // 处理游戏状态同步
-              if (message.type == NetworkGameMessageType.gameState) {
-                _syncGameState(message.payload);
-              }
-            } catch (e) {
-              _logger.e('解析消息失败: $e');
-            }
-          }
-        },
-        onError: (error) {
-          _logger.e('连接错误: $error');
-          _connections.remove(hostId);
-        },
-        onDone: () {
-          _logger.i('与主机断开');
-          _connections.remove(hostId);
-        },
-      );
-
-      _logger.i('已连接到主机: $hostName');
-      return true;
-    } catch (e) {
-      _logger.e('连接失败: $e');
-      return false;
+  /// 处理主机消息（客户端）
+  void _handleHostMessage(NetworkGameMessage message) {
+    if (message.type == NetworkGameMessageType.gameState) {
+      // 更新本地游戏状态
+      _gameState = message.payload;
+      _stateController.add(_gameState);
+    } else if (message.type == NetworkGameMessageType.playerList) {
+      // 玩家列表更新
+      _gameState['players'] = message.payload['players'];
+      _stateController.add(_gameState);
     }
   }
 
-  /// 广播游戏状态
-  void _broadcastGameState(Map<String, dynamic> state) {
-    final message = NetworkGameMessage(
-      type: NetworkGameMessageType.gameState,
-      fromId: _localPlayerId!,
-      fromName: _localPlayerName!,
-      payload: state,
-    );
-
-    final encoded = message.encode();
-
-    for (final socket in _connections.values) {
-      try {
-        socket.writeln(encoded);
-      } catch (e) {
-        _logger.e('广播失败: $e');
-      }
-    }
-  }
-
-  /// 发送游戏状态给指定玩家
-  void _sendGameState(String playerId) {
-    final socket = _connections[playerId];
-    if (socket == null) return;
-
-    // 获取当前游戏状态
-    final state = {
-      'room': _gameService.currentRoom?.toJson(),
-      'numbers': _gameService.currentNumbers,
-      'timeLeft': _gameService.timeLeft,
-    };
+  /// 广播游戏状态（主机调用）
+  void broadcastGameState(Map<String, dynamic> state) {
+    if (!_isHost) return;
 
     final message = NetworkGameMessage(
       type: NetworkGameMessageType.gameState,
@@ -352,68 +357,102 @@ class NetworkGameService {
       payload: state,
     );
 
-    socket.writeln(message.encode());
+    for (final player in _players.values) {
+      _sendToSocket(player.socket, message);
+    }
   }
 
-  /// 同步游戏状态（客户端）
-  void _syncGameState(Map<String, dynamic> state) {
-    // 客户端接收主机发来的游戏状态并更新本地游戏
-    _logger.d('同步游戏状态: $state');
+  /// 发送玩家列表（主机调用）
+  void broadcastPlayerList(List<Map<String, dynamic>> players) {
+    if (!_isHost) return;
 
-    // 触发消息流，让 UI 更新
-    _messageController.add(NetworkGameMessage(
-      type: NetworkGameMessageType.gameState,
-      fromId: 'host',
-      fromName: '主机',
-      payload: state,
-    ));
+    final message = NetworkGameMessage(
+      type: NetworkGameMessageType.playerList,
+      fromId: _localPlayerId!,
+      fromName: _localPlayerName!,
+      payload: {'players': players},
+    );
+
+    for (final player in _players.values) {
+      _sendToSocket(player.socket, message);
+    }
   }
 
-  /// 发送抢答
+  /// 发送抢答（客户端调用）
   void sendRush() {
-    final message = NetworkGameMessage(
+    if (_isHost || _hostSocket == null) return;
+
+    _sendToSocket(_hostSocket!, NetworkGameMessage(
       type: NetworkGameMessageType.rush,
       fromId: _localPlayerId!,
       fromName: _localPlayerName!,
       payload: {},
-    );
-
-    _broadcast(message);
+    ));
   }
 
-  /// 发送答案
+  /// 发送答案（客户端调用）
   void sendAnswer(String answer) {
-    final message = NetworkGameMessage(
+    if (_isHost || _hostSocket == null) return;
+
+    _sendToSocket(_hostSocket!, NetworkGameMessage(
       type: NetworkGameMessageType.submitAnswer,
       fromId: _localPlayerId!,
       fromName: _localPlayerName!,
       payload: {'answer': answer},
-    );
-
-    _broadcast(message);
+    ));
   }
 
-  /// 广播消息
-  void _broadcast(NetworkGameMessage message) {
-    final encoded = message.encode();
+  /// 请求添加机器人（客户端调用）
+  void requestAddBot() {
+    if (_isHost || _hostSocket == null) return;
 
-    for (final socket in _connections.values) {
-      try {
-        socket.writeln(encoded);
-      } catch (e) {
-        _logger.e('广播失败: $e');
-      }
+    _sendToSocket(_hostSocket!, NetworkGameMessage(
+      type: NetworkGameMessageType.addBot,
+      fromId: _localPlayerId!,
+      fromName: _localPlayerName!,
+      payload: {},
+    ));
+  }
+
+  /// 请求开始游戏（客户端调用）
+  void requestStartGame() {
+    if (_isHost || _hostSocket == null) return;
+
+    _sendToSocket(_hostSocket!, NetworkGameMessage(
+      type: NetworkGameMessageType.startGame,
+      fromId: _localPlayerId!,
+      fromName: _localPlayerName!,
+      payload: {},
+    ));
+  }
+
+  /// 发送消息到 socket
+  void _sendToSocket(Socket socket, NetworkGameMessage message) {
+    try {
+      socket.writeln(message.encode());
+    } catch (e) {
+      _logger.e('发送失败: $e');
     }
   }
+
+  /// 获取连接的玩家数量（主机）
+  int get playerCount => _players.length;
 
   /// 清理资源
   Future<void> dispose() async {
-    for (final socket in _connections.values) {
-      socket.destroy();
-    }
-    _connections.clear();
+    _broadcastTimer?.cancel();
 
-    await _server?.close();
+    if (_isHost) {
+      for (final player in _players.values) {
+        player.socket.destroy();
+      }
+      _players.clear();
+      await _server?.close();
+    } else {
+      _hostSocket?.destroy();
+    }
+
+    await _stateController.close();
     await _messageController.close();
 
     _logger.i('网络游戏服务已关闭');

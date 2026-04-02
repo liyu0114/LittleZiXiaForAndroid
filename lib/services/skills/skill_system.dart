@@ -420,11 +420,17 @@ class SkillExecutor {
     if (!skill.isSupported()) {
       return '⚠️ 当前平台不支持此 Skill';
     }
+    
+    debugPrint('[SkillExecutor] ========== 执行 Skill ==========');
+    debugPrint('[SkillExecutor] Skill ID: ${skill.id}');
+    debugPrint('[SkillExecutor] Skill Name: ${skill.metadata.name}');
+    debugPrint('[SkillExecutor] Body length: ${skill.body.length}');
+    debugPrint('[SkillExecutor] Body: ${skill.body}');
 
     // 解析 body 中的指令
     final instructions = _parseInstructions(skill.body);
     
-    debugPrint('[SkillExecutor] Found ${instructions.length} instructions');
+    debugPrint('[SkillExecutor] Parsed ${instructions.length} instructions');
     
     for (final instruction in instructions) {
       debugPrint('[SkillExecutor] Executing: ${instruction.type} - ${instruction.content.substring(0, instruction.content.length > 50 ? 50 : instruction.content.length)}');
@@ -439,6 +445,7 @@ class SkillExecutor {
       }
     }
 
+    debugPrint('[SkillExecutor] ✗ 没有找到可执行的指令');
     return 'Skill "${skill.metadata.name}" 没有可执行的指令';
   }
 

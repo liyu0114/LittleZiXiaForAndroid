@@ -322,6 +322,9 @@ class TwentyFourGameService {
               _currentRoom!.rushingPlayerId = null;
               _startTimer();
               _notifyState();
+              
+              // 重新启动机器人答题逻辑，让机器人可以再次抢答
+              _startBotAnswering();
             }
           });
           
@@ -469,6 +472,27 @@ class TwentyFourGameService {
     }
     
     _notifyState();
+  }
+  
+  /// 下一题（连续游戏）
+  void nextRound() {
+    if (_currentRoom == null) return;
+    
+    _gameTimer?.cancel();
+    _currentRoom!.state = GameState.playing;
+    _currentRoom!.winnerId = null;
+    _currentRoom!.winnerAnswer = null;
+    _currentRoom!.rushingPlayerId = null;
+    _generateNumbers();
+    _startTimer();
+    
+    // 重新启动机器人答题逻辑
+    _startBotAnswering();
+    
+    _messageController.add('📢 下一题！');
+    _notifyState();
+    
+    _logger.i('下一题开始: $_currentNumbers');
   }
   
   /// 退出游戏

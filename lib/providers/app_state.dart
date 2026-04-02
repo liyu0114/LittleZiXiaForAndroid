@@ -40,6 +40,13 @@ class ConversationMessage {
   final DateTime timestamp;
   final bool isStreaming;
   final String? error;
+  
+  // 新增：多媒体支持
+  final String? imagePath;     // 图片路径
+  final String? videoPath;     // 视频路径
+  final String? filePath;      // 文件路径
+  final String? fileName;      // 文件名
+  final int? fileSize;         // 文件大小
 
   ConversationMessage({
     required this.id,
@@ -48,7 +55,21 @@ class ConversationMessage {
     DateTime? timestamp,
     this.isStreaming = false,
     this.error,
+    this.imagePath,
+    this.videoPath,
+    this.filePath,
+    this.fileName,
+    this.fileSize,
   }) : timestamp = timestamp ?? DateTime.now();
+
+  /// 是否有图片
+  bool get hasImage => imagePath != null && imagePath!.isNotEmpty;
+  
+  /// 是否有视频
+  bool get hasVideo => videoPath != null && videoPath!.isNotEmpty;
+  
+  /// 是否有文件
+  bool get hasFile => filePath != null && filePath!.isNotEmpty;
 
   ConversationMessage copyWith({
     String? id,
@@ -57,6 +78,11 @@ class ConversationMessage {
     DateTime? timestamp,
     bool? isStreaming,
     String? error,
+    String? imagePath,
+    String? videoPath,
+    String? filePath,
+    String? fileName,
+    int? fileSize,
   }) {
     return ConversationMessage(
       id: id ?? this.id,
@@ -65,6 +91,11 @@ class ConversationMessage {
       timestamp: timestamp ?? this.timestamp,
       isStreaming: isStreaming ?? this.isStreaming,
       error: error ?? this.error,
+      imagePath: imagePath ?? this.imagePath,
+      videoPath: videoPath ?? this.videoPath,
+      filePath: filePath ?? this.filePath,
+      fileName: fileName ?? this.fileName,
+      fileSize: fileSize ?? this.fileSize,
     );
   }
 }
@@ -459,23 +490,16 @@ class AppState extends ChangeNotifier {
       return;
     }
 
-    // 构建显示内容
-    String displayContent = content;
-    if (imagePath != null) {
-      displayContent = '$content\n[图像: $imagePath]';
-    }
-    if (videoPath != null) {
-      displayContent = '$content\n[视频: $videoPath]';
-    }
-    if (fileResult != null) {
-      displayContent = '$content\n[文件: ${fileResult.name} (${fileResult.sizeFormatted})]';
-    }
-
-    // 添加用户消息
+    // 添加用户消息（包含多媒体信息）
     final userMsg = ConversationMessage(
       id: 'user_${_messageIndex++}',
       role: MessageRole.user,
-      content: displayContent,
+      content: content,
+      imagePath: imagePath,
+      videoPath: videoPath,
+      filePath: fileResult?.path,
+      fileName: fileResult?.name,
+      fileSize: fileResult?.size,
     );
     _messages.add(userMsg);
     

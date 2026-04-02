@@ -158,14 +158,8 @@ class _PermissionRequestScreenState extends State<PermissionRequestScreen> {
               else
                 Column(
                   children: [
-                    Text(
-                      '部分权限被拒绝，某些功能可能受限',
-                      style: TextStyle(
-                        color: Colors.orange[700],
-                        fontSize: 14,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
+                    // 显示具体哪些权限被拒绝
+                    ..._buildDeniedPermissionsList(),
                     const SizedBox(height: 16),
                     Row(
                       children: [
@@ -228,5 +222,75 @@ class _PermissionRequestScreenState extends State<PermissionRequestScreen> {
               ),
       ),
     );
+  }
+
+  /// 构建被拒绝权限列表
+  List<Widget> _buildDeniedPermissionsList() {
+    if (_permissionResults == null) return [];
+
+    final deniedPermissions = <Widget>[];
+    
+    final permissionInfo = {
+      Permission.location: {'name': '位置信息', 'feature': '本地天气、附近搜索'},
+      Permission.camera: {'name': '相机', 'feature': '扫描二维码、拍照'},
+      Permission.microphone: {'name': '麦克风', 'feature': '语音输入'},
+      Permission.storage: {'name': '存储', 'feature': '保存文件'},
+      Permission.notification: {'name': '通知', 'feature': '消息提醒'},
+    };
+
+    bool hasDenied = false;
+
+    for (final entry in _permissionResults!.entries) {
+      final permission = entry.key;
+      final status = entry.value;
+
+      if (!status.isGranted && permissionInfo.containsKey(permission)) {
+        hasDenied = true;
+        final info = permissionInfo[permission]!;
+        deniedPermissions.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                const Icon(Icons.warning_amber, color: Colors.orange, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${info['name']} - ${info['feature']} 功能将受限',
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    if (!hasDenied) {
+      deniedPermissions.add(
+        const Text(
+          '所有权限已授予！',
+          style: TextStyle(color: Colors.green, fontSize: 16),
+        ),
+      );
+    } else {
+      deniedPermissions.insert(
+        0,
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(
+            '以下权限被拒绝：',
+            style: TextStyle(
+              color: Colors.orange[700],
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return deniedPermissions;
   }
 }

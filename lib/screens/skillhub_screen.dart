@@ -183,6 +183,10 @@ class _SkillHubScreenState extends State<SkillHubScreen> {
     try {
       final appState = context.read<AppState>();
       
+      // 生成技能内容（包含可执行指令）
+      final skillBody = _generateDefaultSkillBody(skill);
+      debugPrint('[SkillHub] 安装技能: ${skill.id}');
+      
       // 创建技能对象
       final newSkill = Skill(
         id: skill.id,
@@ -191,19 +195,7 @@ class _SkillHubScreenState extends State<SkillHubScreen> {
           description: skill.description,
           homepage: skill.downloadUrl,
         ),
-        body: '''
-# ${skill.name}
-
-${skill.description}
-
-## 使用方法
-
-此技能从 SkillHub 同步安装。
-
-## 参数
-
-无特定参数。
-''',
+        body: skillBody,
       );
       
       // 添加到注册表
@@ -238,6 +230,75 @@ ${skill.description}
           ),
         );
       }
+    }
+  }
+  
+  /// 生成默认的技能 body
+  String _generateDefaultSkillBody(SkillHubItem skill) {
+    // 根据技能类型生成对应的指令
+    switch (skill.id) {
+      case 'weather':
+        return '''---
+name: weather
+description: ${skill.description}
+---
+
+# Weather
+
+Get current weather and forecasts.
+
+## Current Weather
+
+\`\`\`http
+GET https://wttr.in/{location}?format=j1
+\`\`\`
+
+## Simple Format
+
+\`\`\`http
+GET https://wttr.in/{location}?format=3
+\`\`\`
+
+## Parameters
+
+- `location`: City name or coordinates (e.g., "Beijing", "40.7128,-74.0060")
+''';
+
+      case 'qrcode':
+        return '''---
+name: qrcode
+description: ${skill.description}
+---
+
+# QR Code Generator
+
+Generate QR codes from text or URLs.
+
+## Generate QR Code
+
+\`\`\`http
+GET https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={content}
+\`\`\`
+
+## Parameters
+
+- `content`: Text or URL to encode
+- `size`: Image size (default: 300x300)
+''';
+
+      default:
+        return '''# ${skill.name}
+
+${skill.description}
+
+## 使用方法
+
+此技能从 SkillHub 同步安装。
+
+## 参数
+
+无特定参数。
+''';
     }
   }
 
