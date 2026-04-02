@@ -3,11 +3,15 @@
 // 架构说明：
 // - 主机：创建房间，等待玩家加入，点击"开始群聊"
 // - 客户端：通过IP加入房间，等待主机开始
+// - 机器人：主机可以添加 AI 机器人参与对话
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/chat/group_chat_service.dart';
 import '../services/chat/p2p_messaging.dart';
+import '../services/chat/chat_bot_service.dart';
+import '../providers/app_state.dart';
 
 class NetworkChatScreen extends StatefulWidget {
   const NetworkChatScreen({super.key});
@@ -22,6 +26,10 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
   
   // 群聊服务
   GroupChatService? _chatService;
+  
+  // 机器人服务
+  ChatBotService? _botService;
+  bool _botEnabled = true;  // 默认启用机器人
   
   // 网络状态
   bool _isHost = false;
@@ -51,6 +59,7 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
   void dispose() {
     _chatService?.dispose();
     _networkService?.dispose();
+    _botService?.dispose();
     _messageController.dispose();
     super.dispose();
   }
@@ -76,6 +85,20 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
       userName: _localUserName,
       isBot: false,
     );
+    
+    // 初始化机器人服务（如果启用）
+    if (_botEnabled) {
+      try {
+        final appState = context.read<AppState>();
+        _botService = ChatBotService(
+          config: BotConfig.defaultBot(),
+          replyProbability: 0.2,  // 20% 概率随机回复
+        );
+        debugPrint('[NetworkChat] 机器人服务已初始化');
+      } catch (e) {
+        debugPrint('[NetworkChat] 机器人服务初始化失败: $e');
+      }
+    }
     
     // 创建房间
     final room = _chatService!.createRoom(roomName);
@@ -175,6 +198,11 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
             'time': DateTime.now(),
           });
         });
+        
+        // 主机处理机器人回复
+        if (_isHost && _botEnabled) {
+          _handleBotReply(payload['content'], message.fromId, message.fromName);
+        }
         break;
     }
   }
@@ -201,6 +229,19 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
       _chatStarted = true;
     });
     
+    // 添加机器人到玩家列表（如果启用）
+    if (_botEnabled && _botService != null) {
+      _players.add({
+        'id': _botService!.botId,
+        'name': _botService!.botName,
+        'isHost': false,
+        'isBot': true,
+      });
+      
+      // 广播更新后的玩家列表
+      _broadcastPlayerList();
+    }
+    
     // 通知所有客户端
     final message = P2PMessage(
       type: P2PMessageType.chatMessage,
@@ -209,10 +250,82 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
       payload: {
         'action': 'chatStarted',
         'roomName': _roomName,
+        'botEnabled': _botEnabled,
+        'botName': _botService?.botName ?? '小紫霞',
       },
     );
     
     _networkService?.broadcast(message);
+    
+    // 机器人发送欢迎消息
+    if (_botEnabled) {
+      _sendBotWelcomeMessage();
+    }
+  }
+  
+  /// 机器人发送欢迎消息
+  void _sendBotWelcomeMessage() {
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      
+      final welcomeMessages = [
+        '大家好！我是小紫霞，很高兴加入群聊~',
+        '哈喽！群聊开始了，有什么想聊的吗？',
+        '嗨大家！我是 AI 助手小紫霞，一起聊天吧~',
+      ];
+      
+      final content = welcomeMessages[DateTime.now().millisecondsSinceEpoch % welcomeMessages.length];
+      _sendBotMessage(content);
+    });
+  }
+  
+  /// 发送机器人消息
+  void _sendBotMessage(String content) {
+    if (_botService == null || _networkService == null) return;
+    
+    final message = P2PMessage(
+      type: P2PMessageType.chatMessage,
+      fromId: _botService!.botId,
+      fromName: _botService!.botName,
+      payload: {
+        'action': 'message',
+        'content': content,
+      },
+    );
+    
+    setState(() {
+      _messages.add({
+        'userId': _botService!.botId,
+        'userName': _botService!.botName,
+        'content': content,
+        'time': DateTime.now(),
+        'isBot': true,
+      });
+    });
+    
+    _networkService?.broadcast(message);
+    _botService!.addToHistory(_botService!.botId, _botService!.botName, content);
+  }
+  
+  /// 处理机器人回复（主机）
+  void _handleBotReply(String messageContent, String senderId, String senderName) {
+    if (_botService == null || !_isHost || senderId == _botService!.botId) return;
+    
+    // 添加到历史
+    _botService!.addToHistory(senderId, senderName, messageContent);
+    
+    // 决定是否回复
+    if (_botService!.shouldReply(messageContent, senderId)) {
+      // 延迟回复（模拟思考）
+      Future.delayed(_botService!.getReplyDelay(), () async {
+        if (!mounted) return;
+        
+        final reply = await _botService!.generateReply(messageContent, senderName);
+        if (reply != null && reply.isNotEmpty) {
+          _sendBotMessage(reply);
+        }
+      });
+    }
   }
 
   /// 发送消息
@@ -241,6 +354,11 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
     
     if (_isHost) {
       _networkService?.broadcast(message);
+      
+      // 主机处理机器人回复
+      if (_botEnabled) {
+        _handleBotReply(content, _localUserId!, _localUserName);
+      }
     } else {
       // 客户端只连接到主机，发送到第一个连接
       final connections = _networkService?.connections ?? [];

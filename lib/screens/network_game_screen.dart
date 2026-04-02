@@ -687,8 +687,8 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
             ),
           ),
         
-        // 表达式显示
-        if (!isFinished && (isRushing || _expression.isNotEmpty))
+        // 表达式显示 - 只有自己抢答成功时才显示
+        if (!isFinished && isRushing && isMyRush)
           Container(
             margin: const EdgeInsets.all(16),
             padding: const EdgeInsets.all(16),
