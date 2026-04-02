@@ -16,7 +16,7 @@ import 'settings_screen.dart';
 import 'gateway_dashboard.dart';
 import 'debug_screen.dart';
 import 'sensor_data_screen.dart';
-import 'group_chat_screen.dart';  // 新增群聊屏幕
+import 'group_chat_entry_screen.dart';  // 新增群聊入口
 import 'twenty_four_game_screen.dart';  // 新增24点游戏屏幕
 
 class HomeScreen extends StatefulWidget {
@@ -187,7 +187,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               const SkillsScreenV2(),
               const SkillHubScreen(),
               const SkillLifecycleScreen(),
-              const GroupChatScreen(),  // 新增群聊
+              const GroupChatEntryScreen(),  // 新增群聊入口
               const TwentyFourGameScreen(),  // 新增24点游戏
               const SensorDataScreen(),
               const SettingsScreen(),
