@@ -443,15 +443,9 @@ description: ${skill.description}
 
 # Weather
 
-Get current weather and forecasts.
+Get current weather info.
 
 ## Current Weather
-
-```http
-GET https://wttr.in/{location}?format=j1
-```
-
-## Simple Format
 
 ```http
 GET https://wttr.in/{location}?format=3
@@ -459,7 +453,7 @@ GET https://wttr.in/{location}?format=3
 
 ## Parameters
 
-- `location`: City name or coordinates (e.g., "Beijing", "40.7128,-74.0060")
+- `location`: City name (e.g., "Beijing", "Nanning")
 ''';
 
       case 'qrcode':
