@@ -549,12 +549,67 @@ class SkillExecutor {
       if (response.statusCode == 200) {
         // 尝试 UTF-8 解码
         final body = utf8.decode(response.bodyBytes).trim();
+        
+        // 智能格式化：检测天气 API 的 JSON 响应
+        if (url.contains('wttr.in') && url.contains('format=j1')) {
+          return _formatWeatherJson(body);
+        }
+        
         return body;
       } else {
         return '请求失败: ${response.statusCode}';
       }
     } catch (e) {
       return 'curl 执行错误: $e';
+    }
+  }
+
+  /// 格式化天气 JSON 为友好文字
+  String _formatWeatherJson(String jsonStr) {
+    try {
+      final json = jsonDecode(jsonStr);
+      
+      // 获取当前位置
+      final area = json['nearest_area']?[0]?['areaName']?[0]?['value'] ?? '未知位置';
+      final country = json['nearest_area']?[0]?['country']?[0]?['value'] ?? '';
+      
+      // 获取当前天气
+      final current = json['current_condition']?[0];
+      if (current == null) return '无法获取天气信息';
+      
+      final tempC = current['temp_C'] ?? '?';
+      final tempF = current['temp_F'] ?? '?';
+      final feelsLike = current['FeelsLikeC'] ?? '?';
+      final humidity = current['humidity'] ?? '?';
+      final weatherDesc = current['weatherDesc']?[0]?['value'] ?? '未知';
+      final windSpeed = current['windspeedKmph'] ?? '?';
+      final cloudcover = current['cloudcover'] ?? '?';
+      
+      // 获取未来天气预报（今天）
+      final today = json['weather']?[0];
+      String? forecast;
+      if (today != null) {
+        final maxTemp = today['maxtempC'] ?? '?';
+        final minTemp = today['mintempC'] ?? '?';
+        final avgTemp = today['avgtempC'] ?? '?';
+        forecast = '\n\n📊 今日预报：最高 ${maxTemp}°C，最低 ${minTemp}°C，平均 ${avgTemp}°C';
+      }
+      
+      // 构建友好输出
+      final location = country.isNotEmpty ? '$area, $country' : area;
+      
+      return '''🌤️ $location 天气
+
+🌡️ 当前温度：$tempC°C ($tempF°F)
+🌡️ 体感温度：$feelsLike°C
+☁️ 天气状况：$weatherDesc
+💨 风速：$windSpeed km/h
+💧 湿度：$humidity%
+☁️ 云量：$cloudcover%${forecast ?? ''}''';
+    } catch (e) {
+      debugPrint('[SkillExecutor] 天气 JSON 解析失败: $e');
+      // 解析失败时返回原始内容
+      return jsonStr;
     }
   }
 
