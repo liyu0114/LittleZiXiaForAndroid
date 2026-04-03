@@ -98,22 +98,33 @@ class ChatBotService extends ChangeNotifier {
   bool shouldReply(String message, String senderId) {
     if (senderId == botId) return false;  // 不回复自己
     
-    // 被直接提及
+    // 被直接提及（优先级最高）
     if (message.contains(_config.name) || 
         message.contains('小紫霞') ||
-        message.contains('@${_config.name}')) {
+        message.contains('@${_config.name}') ||
+        message.contains('@小紫霞')) {
       return true;
     }
     
-    // 包含触发关键词
-    for (final keyword in _triggerKeywords) {
+    // 包含技能关键词（优先级高）
+    final skillKeywords = ['天气', '翻译', '二维码', 'qrcode', 'ip', 'IP'];
+    for (final keyword in skillKeywords) {
       if (message.contains(keyword)) {
         return true;
       }
     }
     
-    // 随机回复
-    return _random.nextDouble() < _replyProbability;
+    // 包含问题关键词（中等优先级）
+    final questionKeywords = ['吗', '呢', '？', '?', '怎么', '什么', '为什么', '如何', '谁', '哪'];
+    for (final keyword in questionKeywords) {
+      if (message.contains(keyword)) {
+        // 只有 50% 概率回复问题
+        return _random.nextDouble() < 0.5;
+      }
+    }
+    
+    // 其他情况，只有 10% 概率随机回复
+    return _random.nextDouble() < 0.1;
   }
   
   /// 生成回复

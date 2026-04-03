@@ -545,6 +545,11 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
               label: Text(_isHost ? '主机' : '已连接'),
               backgroundColor: _isHost ? Colors.green : Colors.blue,
             ),
+          IconButton(
+            icon: const Icon(Icons.edit),
+            onPressed: _showNameEditDialog,
+            tooltip: '修改名字',
+          ),
         ],
       ),
       body: Padding(
@@ -569,45 +574,84 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 8),
+                    Text('我的名字: $_localUserName', 
+                         style: TextStyle(color: Colors.grey.shade600)),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 16),
             
-            Text('参与者', style: Theme.of(context).textTheme.titleMedium),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('参与者', style: Theme.of(context).textTheme.titleMedium),
+                Text('${_players.length} 人', style: TextStyle(color: Colors.grey.shade600)),
+              ],
+            ),
             const SizedBox(height: 8),
             Expanded(
               child: ListView.builder(
                 itemCount: _players.length,
                 itemBuilder: (context, index) {
                   final player = _players[index];
+                  final isMe = player['id'] == _localUserId;
+                  
                   return ListTile(
                     leading: CircleAvatar(
-                      child: Icon(player['isHost'] ? Icons.star : Icons.person),
+                      backgroundColor: isMe ? Colors.blue.shade100 : Colors.grey.shade200,
+                      child: Icon(
+                        player['isHost'] 
+                            ? Icons.star 
+                            : player['isBot'] == true 
+                                ? Icons.smart_toy 
+                                : Icons.person,
+                        color: player['isBot'] == true ? Colors.purple : null,
+                      ),
                     ),
-                    title: Text(player['name']),
-                    trailing: player['isHost'] 
-                        ? const Chip(label: Text('主机'))
-                        : null,
+                    title: Row(
+                      children: [
+                        Text(player['name']),
+                        if (player['isBot'] == true)
+                          Container(
+                            margin: const EdgeInsets.only(left: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.purple.shade100,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Text('机器人', style: TextStyle(fontSize: 10, color: Colors.purple)),
+                          ),
+                      ],
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (player['isHost']) 
+                          const Chip(label: Text('主机'), backgroundColor: Colors.green),
+                        if (isMe) 
+                          const Chip(label: Text('我'), backgroundColor: Colors.blue),
+                      ],
+                    ),
                   );
                 },
               ),
             ),
             
-            if (_isHost) ...[
-              // 添加机器人按钮
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: OutlinedButton.icon(
-                  onPressed: _addBot,
-                  icon: const Icon(Icons.smart_toy),
-                  label: const Text('添加机器人（小紫霞）'),
-                ),
+            // 添加机器人按钮（主机和客户端都能添加）
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: OutlinedButton.icon(
+                onPressed: _addBot,
+                icon: const Icon(Icons.smart_toy),
+                label: const Text('添加机器人（小紫霞）'),
               ),
-              const SizedBox(height: 8),
-              // 开始群聊按钮
+            ),
+            const SizedBox(height: 8),
+            // 开始群聊按钮（只有主机能点击）
+            if (_isHost)
               SizedBox(
                 width: double.infinity,
                 height: 48,
@@ -616,8 +660,7 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
                   icon: const Icon(Icons.chat),
                   label: const Text('开始群聊'),
                 ),
-              ),
-            ]
+              )
             else
               Card(
                 color: Colors.blue.shade50,
@@ -639,6 +682,64 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
               ),
           ],
         ),
+      ),
+    );
+  }
+  
+  /// 显示修改名字对话框
+  void _showNameEditDialog() {
+    final controller = TextEditingController(text: _localUserName);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('修改名字'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: '你的名字',
+            hintText: '输入你在群聊中的名字',
+          ),
+          maxLength: 20,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final newName = controller.text.trim();
+              if (newName.isNotEmpty) {
+                setState(() {
+                  _localUserName = newName;
+                });
+                
+                // 更新玩家列表中的名字
+                final index = _players.indexWhere((p) => p['id'] == _localUserId);
+                if (index >= 0) {
+                  _players[index]['name'] = newName;
+                }
+                
+                // 广播更新
+                if (_isHost) {
+                  _broadcastPlayerList();
+                } else {
+                  // 客户端通知主机
+                  _networkService?.broadcast(P2PMessage(
+                    type: P2PMessageType.chatMessage,
+                    fromId: _localUserId!,
+                    fromName: newName,
+                    payload: {'action': 'updateName', 'newName': newName},
+                  ));
+                }
+                
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('确定'),
+          ),
+        ],
       ),
     );
   }
