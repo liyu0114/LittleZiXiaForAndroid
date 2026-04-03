@@ -221,6 +221,38 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
     _networkService!.broadcast(message);
   }
 
+  /// 添加机器人到群聊
+  void _addBot() {
+    if (_botService == null) {
+      // 刯建机器人
+      final botId = _botService!.botId;
+      final botName = _botService!.botName;
+      
+      setState(() {
+        _players.add({
+          'id': botId,
+          'name': botName,
+          'isHost': false,
+          'isBot': true,
+        });
+      });
+      
+      // 如果是主机，广播更新
+      if (_isHost) {
+        _broadcastPlayerList();
+      }
+      
+      // 机器人发送欢迎消息
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _sendBotWelcomeMessage();
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('✅ 机器人 $botName 已加入群聊')),
+      );
+    }
+  }
+  
   /// 开始群聊（主机）
   void _startChat() {
     if (!_isHost) return;
@@ -563,16 +595,29 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
               ),
             ),
             
-            if (_isHost)
+            if (_isHost) ...[
+              // 添加机器人按钮
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: _addBot,
+                  icon: const Icon(Icons.smart_toy),
+                  label: const Text('添加机器人（小紫霞）'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // 开始群聊按钮
               SizedBox(
                 width: double.infinity,
                 height: 48,
                 child: FilledButton.icon(
-                  onPressed: _players.length >= 2 ? _startChat : null,
+                  onPressed: _players.length >= 1 ? _startChat : null,
                   icon: const Icon(Icons.chat),
                   label: const Text('开始群聊'),
                 ),
-              )
+              ),
+            ]
             else
               Card(
                 color: Colors.blue.shade50,

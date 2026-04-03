@@ -114,7 +114,15 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
     final result = _gameService.submitAnswer(_expression);
     if (result == true) {
       setState(() {
-        _message = '🎉 正确！';
+        _message = '🎉 正确！答案正确！';
+      });
+    } else if (result == false) {
+      setState(() {
+        _message = '❌ 答案不正确，请重试！';
+      });
+    } else {
+      setState(() {
+        _message = '⚠️ 无法验证答案，请检查表达式格式';
       });
     }
   }
