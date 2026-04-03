@@ -31,6 +31,7 @@ import '../services/memory/memory_service.dart';
 import '../services/vision/image_analysis_service.dart';
 import '../services/context/context_manager.dart';
 import '../widgets/task_list.dart';
+import '../services/task_executor.dart';  // 任务执行引擎
 
 /// 对话消息（UI 层使用）
 class ConversationMessage {
