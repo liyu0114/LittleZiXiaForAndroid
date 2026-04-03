@@ -1,10 +1,32 @@
-// 群聊屏幕
+// 单机群聊屏幕
 //
-// 显示群聊房间列表和聊天界面
+// 对话页的扩展版：用户 + 多个机器人
+// 完全本地化，不需要网络
 
+import 'dart:async';
 import 'package:flutter/material.dart';
-import '../services/chat/group_chat_service.dart';
-import '../services/chat/lan_discovery.dart';
+import 'package:provider/provider.dart';
+import '../providers/app_state.dart';
+import '../services/chat/chat_bot_service.dart';
+
+/// 群聊消息
+class LocalChatMessage {
+  final String id;
+  final String senderId;
+  final String senderName;
+  final String content;
+  final DateTime time;
+  final bool isBot;
+  
+  LocalChatMessage({
+    required this.id,
+    required this.senderId,
+    required this.senderName,
+    required this.content,
+    required this.time,
+    this.isBot = false,
+  });
+}
 
 class GroupChatScreen extends StatefulWidget {
   const GroupChatScreen({super.key});
@@ -14,25 +36,16 @@ class GroupChatScreen extends StatefulWidget {
 }
 
 class _GroupChatScreenState extends State<GroupChatScreen> {
-  final GroupChatService _chatService = GroupChatService();
-  final LanDiscoveryService _discoveryService = LanDiscoveryService();
-  
+  // 消息列表
+  final List<LocalChatMessage> _messages = [];
   final _messageController = TextEditingController();
-  final _roomNameController = TextEditingController();
   
-  ChatRoom? _currentRoom;
-  List<GroupChatMessage> _messages = [];
+  // 用户信息
+  late String _localUserId;
+  final String _localUserName = '我';
   
-  // 发现的设备列表
-  List<DiscoveredDevice> _nearbyDevices = [];
-  List<DiscoveredRoom> _nearbyRooms = [];
-  bool _isScanning = false;
-  
-  // 已连接的设备
-  List<dynamic> _connectedDevices = [];
-  
-  // 是否作为机器人
-  bool _isBot = false;
+  // 机器人列表
+  final List<ChatBotService> _bots = [];
   
   // 是否已初始化
   bool _initialized = false;
@@ -40,166 +53,135 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   @override
   void initState() {
     super.initState();
+    _localUserId = 'user_${DateTime.now().millisecondsSinceEpoch}';
     _initServices();
   }
   
   void _initServices() async {
-    final deviceId = 'device_${DateTime.now().millisecondsSinceEpoch}';
-    
-    // 初始化发现服务
-    _discoveryService.init(
-      deviceId: deviceId,
-      deviceName: '小紫霞用户',
-      isBot: _isBot,
-    );
-    
-    // 初始化群聊服务
-    await _chatService.initUser(
-      userId: deviceId,
-      userName: _isBot ? '小紫霞机器人' : '小紫霞用户',
-      isBot: _isBot,
-    );
-    
-    // 监听消息
-    _chatService.messageStream.listen((message) {
-      if (message.roomId == _currentRoom?.id) {
-        setState(() {
-          _messages = _chatService.getRoomMessages(message.roomId);
-        });
-      }
-    });
-    
-    // 监听发现的设备
-    _discoveryService.devicesStream.listen((devices) {
-      if (mounted) {
-        setState(() {
-          _nearbyDevices = devices;
-        });
-      }
-    });
-    
-    // 监听发现的房间
-    _discoveryService.roomsStream.listen((rooms) {
-      if (mounted) {
-        setState(() {
-          _nearbyRooms = rooms;
-        });
-      }
-    });
-    
     setState(() => _initialized = true);
     
-    // 开始扫描
-    _startScanning();
-  }
-  
-  void _startScanning() async {
-    if (_isScanning) return;
-    
-    setState(() => _isScanning = true);
-    
-    try {
-      // 启动发现服务（异步）
-      await _discoveryService.start();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('启动扫描失败: $e')),
-        );
-      }
-    } finally {
-      // 1秒后停止扫描状态
-      Future.delayed(const Duration(seconds: 1), () {
-        if (mounted) {
-          setState(() => _isScanning = false);
-        }
-      });
-    }
-  }
-  
-  void _showAddDeviceByIP() {
-    final ipController = TextEditingController();
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('手动添加设备'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('输入对方设备的 IP 地址（Tailscale 或局域网 IP）'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: ipController,
-              decoration: const InputDecoration(
-                labelText: 'IP 地址',
-                hintText: '例如: 100.120.127.105',
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.number,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final ip = ipController.text.trim();
-              if (ip.isEmpty) return;
-              
-              Navigator.pop(context);
-              
-              // 显示扫描中
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('正在连接 $ip...')),
-              );
-              
-              // 扫描 IP
-              final found = await _discoveryService.addDeviceManually(ip);
-              
-              if (mounted) {
-                if (found) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('已发现设备 $ip')),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('无法连接到 $ip')),
-                  );
-                }
-              }
-            },
-            child: const Text('连接'),
-          ),
-        ],
-      ),
-    );
+    // 默认添加一个小紫霞机器人
+    _addBot();
   }
   
   @override
   void dispose() {
     _messageController.dispose();
-    _roomNameController.dispose();
-    _chatService.dispose();
-    _discoveryService.dispose();
+    for (final bot in _bots) {
+      bot.dispose();
+    }
     super.dispose();
   }
   
-  void _createRoom() {
+  /// 添加机器人
+  void _addBot() {
+    final appState = context.read<AppState>();
+    
+    final bot = ChatBotService(
+      skillExecuteCallback: (skillId, params) async {
+        try {
+          return await appState.executeSkill(skillId, params);
+        } catch (e) {
+          debugPrint('[GroupChat] 技能执行失败: $e');
+          return null;
+        }
+      },
+      config: BotConfig.defaultBot(),
+      replyProbability: 0.3,
+      minReplyDelay: 1500,
+      maxReplyDelay: 4000,
+    );
+    
+    setState(() {
+      _bots.add(bot);
+    });
+    
+    // 机器人发送欢迎消息
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        _addBotMessage(bot, '大家好！我是${bot.botName}，很高兴加入群聊~');
+      }
+    });
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('✅ 机器人 ${bot.botName} 已加入群聊')),
+    );
+  }
+  
+  /// 添加机器人消息
+  void _addBotMessage(ChatBotService bot, String content) {
+    final message = LocalChatMessage(
+      id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
+      senderId: bot.botId,
+      senderName: bot.botName,
+      content: content,
+      time: DateTime.now(),
+      isBot: true,
+    );
+    
+    setState(() {
+      _messages.add(message);
+    });
+    
+    // 添加到所有机器人的历史
+    for (final b in _bots) {
+      b.addToHistory(bot.botId, bot.botName, content);
+    }
+  }
+  
+  /// 发送消息
+  void _sendMessage() {
+    final content = _messageController.text.trim();
+    if (content.isEmpty) return;
+    
+    // 添加用户消息
+    final message = LocalChatMessage(
+      id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
+      senderId: _localUserId,
+      senderName: _localUserName,
+      content: content,
+      time: DateTime.now(),
+    );
+    
+    setState(() {
+      _messages.add(message);
+    });
+    
+    // 添加到所有机器人的历史
+    for (final bot in _bots) {
+      bot.addToHistory(_localUserId, _localUserName, content);
+    }
+    
+    _messageController.clear();
+    
+    // 让机器人决定是否回复
+    _handleBotReplies(content);
+  }
+  
+  /// 处理机器人回复
+  void _handleBotReplies(String content) {
+    for (final bot in _bots) {
+      if (bot.shouldReply(content, _localUserId)) {
+        // 延迟回复（模拟思考）
+        Future.delayed(bot.getReplyDelay(), () async {
+          if (!mounted) return;
+          
+          final reply = await bot.generateReply(content, _localUserName);
+          if (reply != null && reply.isNotEmpty) {
+            _addBotMessage(bot, reply);
+          }
+        });
+      }
+    }
+  }
+  
+  /// 清空聊天记录
+  void _clearChat() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('创建群聊房间'),
-        content: TextField(
-          controller: _roomNameController,
-          decoration: const InputDecoration(
-            labelText: '房间名称',
-            hintText: '输入房间名称',
-          ),
-        ),
+        title: const Text('清空聊天记录'),
+        content: const Text('确定要清空所有聊天记录吗？'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -207,115 +189,91 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           ),
           FilledButton(
             onPressed: () {
-              if (_roomNameController.text.isNotEmpty) {
-                final room = _chatService.createRoom(_roomNameController.text);
-                
-                // 广播房间信息
-                _discoveryService.setCurrentRoom(room.id, room.name);
-                
-                setState(() {
-                  _currentRoom = room;
-                  _messages = [];
-                });
-                _roomNameController.clear();
-                Navigator.pop(context);
-              }
+              setState(() {
+                _messages.clear();
+                for (final bot in _bots) {
+                  bot.clearHistory();
+                }
+              });
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('✅ 聊天记录已清空')),
+              );
             },
-            child: const Text('创建'),
+            child: const Text('确定'),
           ),
         ],
       ),
     );
   }
   
-  void _joinNearbyRoom(DiscoveredRoom room) {
-    // 创建本地房间副本
-    final localRoom = _chatService.createRoom(room.name);
-    
-    // 设置为当前房间
-    setState(() {
-      _currentRoom = localRoom;
-      _messages = [];
-    });
-    
-    // 广播自己加入了
-    _discoveryService.setCurrentRoom(room.id, room.name);
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已加入 ${room.name}')),
-    );
-  }
-  
-  void _connectToDevice(DiscoveredDevice device) async {
-    final success = await _chatService.connectToDevice(
-      deviceId: device.id,
-      deviceName: device.name,
-      ipAddress: device.ipAddress,
-      port: 18790,
-    );
-    
-    if (success) {
-      setState(() {
-        _connectedDevices = _chatService.connectedDevices;
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已连接到 ${device.name}')),
-        );
-      }
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('连接 ${device.name} 失败')),
-        );
-      }
-    }
-  }
-  
-  void _toggleBotMode() async {
-    setState(() => _isBot = !_isBot);
-    
-    // 重新初始化服务
-    _chatService.dispose();
-    _discoveryService.dispose();
-    
-    _initServices();
-    
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_isBot ? '已切换为机器人模式' : '已切换为用户模式')),
-      );
-    }
-  }
-  
-  void _sendMessage() {
-    if (_messageController.text.isEmpty || _currentRoom == null) return;
-    _chatService.sendMessage(_currentRoom!.id, _messageController.text);
-    _messageController.clear();
-  }
-  
-  void _showRoomInfo() {
-    if (_currentRoom == null) return;
-    showDialog(
+  /// 显示机器人列表
+  void _showBotList() {
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('房间信息'),
-        content: Column(
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('房间名称: ${_currentRoom!.name}'),
-            const SizedBox(height: 8),
-            const Text('附近设备会自动发现此房间', style: TextStyle(color: Colors.grey)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('机器人列表', style: Theme.of(context).textTheme.titleLarge),
+                Text('${_bots.length} 个机器人'),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (_bots.isEmpty)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Text('暂无机器人', style: TextStyle(color: Colors.grey)),
+                ),
+              )
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                itemCount: _bots.length,
+                itemBuilder: (context, index) {
+                  final bot = _bots[index];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.purple.shade100,
+                      child: const Icon(Icons.smart_toy, color: Colors.purple),
+                    ),
+                    title: Text(bot.botName),
+                    subtitle: const Text('小紫霞 AI 助手'),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.remove_circle_outline),
+                      onPressed: () {
+                        setState(() {
+                          _bots.removeAt(index);
+                        });
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('✅ 机器人 ${bot.botName} 已移除')),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _addBot();
+                },
+                icon: const Icon(Icons.add),
+                label: const Text('添加机器人'),
+              ),
+            ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('关闭'),
-          ),
-        ],
       ),
     );
   }
@@ -324,306 +282,175 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_currentRoom?.name ?? '群聊'),
+        title: const Text('单机群聊'),
         actions: [
-          if (_currentRoom != null) ...[
-            IconButton(
-              icon: const Icon(Icons.info_outline),
-              onPressed: _showRoomInfo,
-              tooltip: '房间信息',
-            ),
-            IconButton(
-              icon: const Icon(Icons.exit_to_app),
-              onPressed: () {
-                _discoveryService.setCurrentRoom(null, null);
-                setState(() {
-                  _currentRoom = null;
-                  _messages = [];
-                });
-              },
-              tooltip: '退出房间',
-            ),
-          ] else ...[
-            IconButton(
-              icon: Icon(_isBot ? Icons.smart_toy : Icons.person),
-              onPressed: _toggleBotMode,
-              tooltip: _isBot ? '机器人模式 (点击切换)' : '用户模式 (点击切换)',
-            ),
-            IconButton(
-              icon: const Icon(Icons.add_link),
-              onPressed: _showAddDeviceByIP,
-              tooltip: '手动添加设备 (Tailscale)',
-            ),
-            IconButton(
-              icon: _isScanning 
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
-              onPressed: _isScanning ? null : _startScanning,
-              tooltip: '扫描附近',
-            ),
-            IconButton(
-              icon: const Icon(Icons.add),
-              onPressed: _createRoom,
-              tooltip: '创建房间',
-            ),
-          ],
-        ],
-      ),
-      body: _currentRoom == null ? _buildRoomList() : _buildChatView(),
-    );
-  }
-  
-  Widget _buildRoomList() {
-    return RefreshIndicator(
-      onRefresh: () async {
-        _startScanning();
-        await Future.delayed(const Duration(seconds: 2));
-      },
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // 附近房间
-          if (_nearbyRooms.isNotEmpty) ...[
-            Row(
-              children: [
-                const Icon(Icons.wifi, size: 20),
-                const SizedBox(width: 8),
-                Text('附近的房间', style: Theme.of(context).textTheme.titleMedium),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ...(_nearbyRooms.map((room) => Card(
-              child: ListTile(
-                leading: const CircleAvatar(
-                  child: Icon(Icons.group),
-                ),
-                title: Text(room.name),
-                subtitle: Text('创建者: ${room.hostName}'),
-                trailing: FilledButton(
-                  onPressed: () => _joinNearbyRoom(room),
-                  child: const Text('加入'),
-                ),
-              ),
-            ))),
-            const SizedBox(height: 16),
-          ],
-          
-          // 附近设备
-          if (_nearbyDevices.isNotEmpty) ...[
-            Row(
-              children: [
-                const Icon(Icons.devices, size: 20),
-                const SizedBox(width: 8),
-                Text('附近的设备 (${_nearbyDevices.length})', style: Theme.of(context).textTheme.titleMedium),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ...(_nearbyDevices.map((device) => Card(
-              child: ListTile(
-                leading: CircleAvatar(
-                  child: Icon(device.isBot ? Icons.smart_toy : Icons.person),
-                ),
-                title: Text(device.name),
-                subtitle: Text(device.isBot ? '机器人' : '用户'),
-                trailing: TextButton.icon(
-                  onPressed: () => _connectToDevice(device),
-                  icon: const Icon(Icons.link),
-                  label: const Text('连接'),
-                ),
-              ),
-            ))),
-            const SizedBox(height: 16),
-          ],
-          
-          // 已连接设备
-          if (_connectedDevices.isNotEmpty) ...[
-            Row(
-              children: [
-                const Icon(Icons.link, size: 20, color: Colors.green),
-                const SizedBox(width: 8),
-                Text('已连接 (${_connectedDevices.length})', 
-                     style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.green)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ...(_connectedDevices.map((conn) => ListTile(
-              leading: const CircleAvatar(
-                backgroundColor: Colors.green,
-                child: Icon(Icons.check, color: Colors.white, size: 16),
-              ),
-              title: Text(conn.deviceName),
-              subtitle: Text(conn.ipAddress),
-            ))),
-            const SizedBox(height: 16),
-          ],
-          
-          // 空状态
-          if (_nearbyRooms.isEmpty && _nearbyDevices.isEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
+          IconButton(
+            icon: const Icon(Icons.smart_toy),
+            onPressed: _showBotList,
+            tooltip: '机器人列表',
+          ),
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: _addBot,
+            tooltip: '添加机器人',
+          ),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'clear') {
+                _clearChat();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'clear',
+                child: Row(
                   children: [
-                    Icon(
-                      _isScanning ? Icons.wifi_find : Icons.people_outline,
-                      size: 64,
-                      color: Colors.grey.shade400,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      _isScanning ? '正在扫描附近设备...' : '附近暂无其他设备',
-                      style: TextStyle(color: Colors.grey.shade600),
-                    ),
-                    const SizedBox(height: 24),
-                    if (!_isScanning) ...[
-                      FilledButton.icon(
-                        onPressed: _createRoom,
-                        icon: const Icon(Icons.add),
-                        label: const Text('创建房间'),
-                      ),
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: _showAddDeviceByIP,
-                        icon: const Icon(Icons.link),
-                        label: const Text('手动添加设备 (Tailscale)'),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '通过 Tailscale 连接时，请手动输入 IP',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-                      ),
-                    ],
+                    Icon(Icons.delete_outline),
+                    SizedBox(width: 8),
+                    Text('清空聊天记录'),
                   ],
                 ),
               ),
-            ),
+            ],
+          ),
         ],
       ),
-    );
-  }
-  
-  Widget _buildChatView() {
-    return Column(
-      children: [
-        // 房间信息栏
-        Container(
-          padding: const EdgeInsets.all(8),
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          child: Row(
-            children: [
-              const Icon(Icons.wifi, size: 16),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  _currentRoom!.name,
-                  style: TextStyle(color: Colors.grey.shade600),
-                ),
-              ),
-              TextButton(
-                onPressed: () {
-                  _discoveryService.setCurrentRoom(null, null);
-                  setState(() {
-                    _currentRoom = null;
-                    _messages = [];
-                  });
-                },
-                child: const Text('退出'),
-              ),
-            ],
-          ),
-        ),
-        
-        // 消息列表
-        Expanded(
-          child: _messages.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.chat_bubble_outline, size: 48, color: Colors.grey.shade400),
-                      const SizedBox(height: 16),
-                      Text('等待其他人加入...', style: TextStyle(color: Colors.grey.shade600)),
-                    ],
+      body: Column(
+        children: [
+          // 机器人数量提示
+          if (_bots.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: Colors.purple.shade50,
+              child: Row(
+                children: [
+                  Icon(Icons.smart_toy, size: 16, color: Colors.purple.shade700),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${_bots.length} 个机器人在线',
+                    style: TextStyle(color: Colors.purple.shade700),
                   ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(8),
-                  itemCount: _messages.length,
-                  itemBuilder: (context, index) {
-                    final msg = _messages[index];
-                    final isMe = msg.senderId == _chatService.currentUserId;
-                    
-                    return Align(
-                      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isMe 
-                              ? Theme.of(context).colorScheme.primaryContainer
-                              : Theme.of(context).colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '${msg.senderName}${msg.isFromBot ? ' 🤖' : ''}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade600,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(msg.content),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-        ),
-        
-        // 输入框
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 4,
+                ],
               ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _messageController,
-                  decoration: const InputDecoration(
-                    hintText: '输入消息...',
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+          
+          // 消息列表
+          Expanded(
+            child: _messages.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.chat_bubble_outline, size: 48, color: Colors.grey.shade400),
+                        const SizedBox(height: 16),
+                        Text(
+                          '开始聊天吧！',
+                          style: TextStyle(color: Colors.grey.shade600),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '已添加 ${_bots.length} 个机器人',
+                          style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(8),
+                    itemCount: _messages.length,
+                    itemBuilder: (context, index) {
+                      final msg = _messages[index];
+                      final isMe = msg.senderId == _localUserId;
+                      
+                      return Align(
+                        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.all(12),
+                          constraints: BoxConstraints(
+                            maxWidth: MediaQuery.of(context).size.width * 0.75,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isMe 
+                                ? Theme.of(context).colorScheme.primaryContainer
+                                : msg.isBot
+                                    ? Colors.purple.shade50
+                                    : Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (!isMe)
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (msg.isBot)
+                                      Icon(Icons.smart_toy, size: 14, color: Colors.purple.shade700)
+                                    else
+                                      Icon(Icons.person, size: 14, color: Colors.grey.shade700),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      msg.senderName,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: msg.isBot ? Colors.purple.shade700 : Colors.grey.shade700,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              if (!isMe) const SizedBox(height: 4),
+                              Text(msg.content),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                  onSubmitted: (_) => _sendMessage(),
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.filled(
-                onPressed: _sendMessage,
-                icon: const Icon(Icons.send),
-              ),
-            ],
           ),
-        ),
-      ],
+          
+          // 输入框
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.grey.shade300,
+                  blurRadius: 4,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _messageController,
+                    decoration: const InputDecoration(
+                      hintText: '输入消息...',
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    onSubmitted: (_) => _sendMessage(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: _sendMessage,
+                  icon: const Icon(Icons.send),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

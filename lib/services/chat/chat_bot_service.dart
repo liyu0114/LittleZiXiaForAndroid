@@ -1,6 +1,6 @@
 // 群聊机器人服务
 //
-// 为联网群聊提供 AI 机器人参与对话
+// 为群聊提供 AI 机器人参与对话（支持技能系统）
 
 import 'dart:async';
 import 'dart:math';
@@ -28,21 +28,12 @@ class BotConfig {
   );
 }
 
-/// 简化的 LLM 消息
-class SimpleChatMessage {
-  final String role;  // system, user, assistant
-  final String content;
-  
-  SimpleChatMessage(this.role, this.content);
-  
-  static SimpleChatMessage system(String content) => SimpleChatMessage('system', content);
-  static SimpleChatMessage user(String content) => SimpleChatMessage('user', content);
-}
+/// 技能执行回调
+typedef SkillExecuteCallback = Future<String?> Function(String skillId, Map<String, dynamic> params);
 
 /// 群聊机器人服务
 class ChatBotService extends ChangeNotifier {
-  final String? _llmEndpoint;  // LLM API 端点
-  final String? _llmApiKey;    // LLM API 密钥
+  final SkillExecuteCallback? _skillExecuteCallback;  // 技能执行回调
   final BotConfig _config;
   
   // 对话历史（用于上下文）
@@ -64,17 +55,17 @@ class ChatBotService extends ChangeNotifier {
     '小紫霞', '机器人', 'bot', 'ai', 'AI', '紫霞',
     '吗', '呢', '？', '?', '怎么', '什么', '为什么', '如何',
     '大家', '你们', '有人', '知道',
+    // 技能关键词
+    '天气', '翻译', '二维码', 'qrcode', 'ip', 'IP',
   ];
   
   ChatBotService({
-    String? llmEndpoint,
-    String? llmApiKey,
+    SkillExecuteCallback? skillExecuteCallback,
     BotConfig? config,
     double replyProbability = 0.3,
     int minReplyDelay = 1500,
     int maxReplyDelay = 4000,
-  }) : _llmEndpoint = llmEndpoint,
-       _llmApiKey = llmApiKey,
+  }) : _skillExecuteCallback = skillExecuteCallback,
        _config = config ?? BotConfig.defaultBot(),
        _replyProbability = replyProbability,
        _minReplyDelay = minReplyDelay,
@@ -127,22 +118,63 @@ class ChatBotService extends ChangeNotifier {
   
   /// 生成回复
   Future<String?> generateReply(String recentMessage, String senderName) async {
-    // 如果没有 LLM 配置，使用后备回复
-    if (_llmEndpoint == null || _llmApiKey == null) {
-      return _generateFallbackReply(senderName);
+    // 1. 尝试使用技能
+    if (_skillExecuteCallback != null) {
+      try {
+        final skillResult = await _tryExecuteSkill(recentMessage);
+        if (skillResult != null) {
+          return skillResult;
+        }
+      } catch (e) {
+        debugPrint('[ChatBotService] 技能执行失败: $e');
+      }
     }
     
-    try {
-      // TODO: 调用实际的 LLM API
-      // 目前使用后备回复
-      return _generateFallbackReply(senderName);
-    } catch (e) {
-      debugPrint('[ChatBotService] LLM 生成失败: $e');
-      return _generateFallbackReply(senderName);
-    }
+    // 2. 使用后备回复
+    return _generateFallbackReply(senderName);
   }
   
-  /// 后备回复（LLM 不可用时）
+  /// 尝试执行技能
+  Future<String?> _tryExecuteSkill(String message) async {
+    if (_skillExecuteCallback == null) return null;
+    
+    // 天气技能
+    if (message.contains('天气')) {
+      final locationMatch = RegExp(r'(\w+)(?:的)?天气').firstMatch(message);
+      final location = locationMatch?.group(1) ?? '北京';
+      
+      final result = await _skillExecuteCallback!(
+        'weather',
+        {'location': location},
+      );
+      
+      if (result != null && result.isNotEmpty) {
+        return '【天气】$result';
+      }
+    }
+    
+    // 翻译技能
+    if (message.contains('翻译')) {
+      final translateMatch = RegExp(r'翻译[成到](\w+)[：:]?\s*(.+)').firstMatch(message);
+      if (translateMatch != null) {
+        final targetLang = translateMatch.group(1) ?? '英文';
+        final text = translateMatch.group(2) ?? '';
+        
+        final result = await _skillExecuteCallback!(
+          'translate',
+          {'text': text, 'from': 'zh', 'to': targetLang == '英文' ? 'en' : targetLang},
+        );
+        
+        if (result != null && result.isNotEmpty) {
+          return '【翻译】$result';
+        }
+      }
+    }
+    
+    return null;
+  }
+  
+  /// 后备回复（技能不可用时）
   String _generateFallbackReply(String senderName) {
     final replies = [
       '嗯嗯，有意思！',
