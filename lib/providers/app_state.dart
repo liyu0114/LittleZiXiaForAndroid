@@ -655,82 +655,20 @@ class AppState extends ChangeNotifier {
       print('[DEBUG] Skill ID: $skillId');
       print('[DEBUG] 参数: $params');
       
-      // 1. 优先使用内置实现（更稳定）
-      String? result;
-      
-      switch (skillId) {
-        case 'weather':
-          print('[DEBUG] 执行天气 Skill (内置)');
-          result = await _executeWeatherSkill(params);
-          break;
-        
-        case 'time':
-          print('[DEBUG] 执行时间 Skill (内置)');
-          result = await _executeTimeSkill(params);
-          break;
-        
-        case 'translate':
-          print('[DEBUG] 执行翻译 Skill (内置)');
-          result = await _executeTranslateSkill(params);
-          break;
-        
-        case 'web_search':
-          print('[DEBUG] 执行搜索 Skill (内置)');
-          result = await _executeWebSearchSkill(params);
-          break;
-        
-        case 'calculator':
-          print('[DEBUG] 执行计算器 Skill (内置)');
-          result = await _executeCalculatorSkill(params);
-          break;
-        
-        case 'reminder':
-          print('[DEBUG] 执行提醒 Skill (内置)');
-          result = await _executeReminderSkill(params);
-          break;
-        
-        case 'timer':
-          print('[DEBUG] 执行倒计时 Skill (内置)');
-          result = await _executeTimerSkill(params);
-          break;
-        
-        case 'random':
-          print('[DEBUG] 执行随机数 Skill (内置)');
-          result = await _executeRandomSkill(params);
-          break;
-        
-        case 'joke':
-          print('[DEBUG] 执行笑话 Skill (内置)');
-          result = await _executeJokeSkill(params);
-          break;
-        
-        case 'location':
-        case 'current_location':
-          print('[DEBUG] 执行位置 Skill (内置)');
-          result = await _executeLocationSkill(params);
-          break;
-      }
-      
-      // 如果内置实现成功，直接返回
-      if (result != null) {
-        print('[DEBUG] ✓ 内置实现成功: $result');
-        return result;
-      }
-      
-      // 2. 如果内置实现不存在，尝试从 SkillManager 获取技能
+      // 从 SkillManager 获取技能（全部从外部加载）
       final skill = _skillManager.registry.get(skillId);
       if (skill != null) {
         print('[DEBUG] ✓ 从 SkillManager 找到技能: ${skill.metadata.name}');
-        result = await _skillManager.executeSkill(skill, params);
+        final result = await _skillManager.executeSkill(skill, params);
         print('[DEBUG] Skill 执行结果: $result');
         return result;
       }
       
-      print('[DEBUG] 没有找到可执行的 Skill');
-      return null;
+      print('[DEBUG] 没有找到可执行的 Skill: $skillId');
+      return '⚠️ Skill "$skillId" 未安装或不可用';
     } catch (e) {
       print('[DEBUG] Skill 执行失败: $e');
-      return 'Skill 执行失败: $e';
+      return '❌ Skill 执行失败: $e';
     }
   }
 
