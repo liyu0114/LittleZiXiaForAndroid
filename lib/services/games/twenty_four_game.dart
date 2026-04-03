@@ -458,7 +458,11 @@ class TwentyFourGameService {
     _currentRoom!.winnerAnswer = answer;
     
     if (winnerId != null) {
-      final winner = _currentRoom?.players.firstWhere((p) => p.id == winnerId);
+      // 使用 firstWhere 的 orElse 参数避免抛出异常
+      final winner = _currentRoom?.players.firstWhere(
+        (p) => p.id == winnerId,
+        orElse: () => _currentRoom!.players.first,  // 找不到时返回第一个玩家
+      );
       if (winner != null) {
         winner.score++;
         _logger.i('${winner.name} 获胜！答案: $answer');
