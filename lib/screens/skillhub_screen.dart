@@ -3,6 +3,7 @@
 // 从 OpenClaw SkillHub 同步、浏览、安装技能
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../services/skills/skill_system.dart';
@@ -190,7 +191,9 @@ class _SkillHubScreenState extends State<SkillHubScreen> {
       try {
         final clawhub = ClawHubService();
         skillBody = await clawhub.getSkillContent(skill.id);
-        debugPrint('[SkillHub] 从 API 获取技能内容: ${skill.id}');
+        if (skillBody != null && skillBody.isNotEmpty) {
+          debugPrint('[SkillHub] 从 API 获取技能内容: ${skill.id}');
+        }
       } catch (e) {
         debugPrint('[SkillHub] API 获取失败: $e');
       }
@@ -199,36 +202,18 @@ class _SkillHubScreenState extends State<SkillHubScreen> {
       if (skillBody == null || skillBody.isEmpty) {
         try {
           // 尝试从 assets 加载预置技能
-          final existingSkill = appState.skillRegistry.get(skill.id);
-          if (existingSkill != null) {
-            skillBody = existingSkill.body;
-            debugPrint('[SkillHub] 使用预置技能: ${skill.id}');
-          }
+          final assetPath = 'assets/skills/${skill.id}/SKILL.md';
+          skillBody = await rootBundle.loadString(assetPath);
+          debugPrint('[SkillHub] 从 assets 加载技能: ${skill.id}');
         } catch (e) {
-          debugPrint('[SkillHub] 预置技能加载失败: $e');
+          debugPrint('[SkillHub] assets 加载失败: $e');
         }
       }
       
-      // 3. 如果都没有，生成一个简单的默认内容
+      // 3. 如果都没有，使用内置的技能模板（包含 http 指令）
       if (skillBody == null || skillBody.isEmpty) {
-        skillBody = '''---
-name: ${skill.name}
-description: ${skill.description}
----
-
-# ${skill.name}
-
-${skill.description}
-
-## 使用方法
-
-此技能从 SkillHub 同步安装。
-
-## 注意
-
-此技能暂无可执行指令，请联系开发者完善。
-''';
-        debugPrint('[SkillHub] 使用默认内容: ${skill.id}');
+        skillBody = _getBuiltinSkillTemplate(skill.id, skill.name, skill.description);
+        debugPrint('[SkillHub] 使用内置模板: ${skill.id}');
       }
       
       debugPrint('[SkillHub] 安装技能: ${skill.id}, body长度: ${skillBody.length}');
@@ -277,6 +262,119 @@ ${skill.description}
           ),
         );
       }
+    }
+  }
+  
+  /// 获取内置技能模板（包含可执行指令）
+  String _getBuiltinSkillTemplate(String skillId, String skillName, String skillDescription) {
+    // 根据技能 ID 返回对应的模板（包含 http 指令）
+    switch (skillId) {
+      case 'weather':
+        return '''---
+name: weather
+description: $skillDescription
+---
+
+# Weather
+
+Get current weather info.
+
+## Current Weather
+
+\`\`\`http
+GET https://wttr.in/{location}?format=3
+\`\`\`
+
+## Parameters
+
+- \`location\`: City name (e.g., "Beijing", "Nanning")
+''';
+
+      case 'translate':
+        return '''---
+name: translate
+description: $skillDescription
+---
+
+# Translate
+
+Translate text between languages.
+
+## Translate Text
+
+\`\`\`http
+GET https://api.mymemory.translated.net/get?q={text}&langpair={from}|{to}
+\`\`\`
+
+## Parameters
+
+- \`text\`: Text to translate
+- \`from\`: Source language code (e.g., en, zh, ja)
+- \`to\`: Target language code
+''';
+
+      case 'qrcode':
+        return '''---
+name: qrcode
+description: $skillDescription
+---
+
+# QR Code Generator
+
+Generate QR codes from text or URLs.
+
+## Generate QR Code
+
+\`\`\`http
+GET https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={content}
+\`\`\`
+
+## Parameters
+
+- \`content\`: Text or URL to encode
+- \`size\`: Image size (default: 300x300)
+''';
+
+      case 'ip-lookup':
+        return '''---
+name: ip-lookup
+description: $skillDescription
+---
+
+# IP Lookup
+
+Query IP address geolocation information.
+
+## Lookup IP
+
+\`\`\`http
+GET http://ip-api.com/json/{ip}
+\`\`\`
+
+## Parameters
+
+- \`ip\`: IP address to lookup (omit for current IP)
+''';
+
+      default:
+        // 默认模板（无 http 指令）
+        return '''---
+name: $skillName
+description: $skillDescription
+---
+
+# $skillName
+
+$skillDescription
+
+## 使用方法
+
+此技能从 SkillHub 同步安装。
+
+## 注意
+
+此技能暂无可执行指令，请联系开发者完善。
+''';
     }
   }
   
