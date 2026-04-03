@@ -377,23 +377,33 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
           padding: const EdgeInsets.all(12),
           color: isRushing 
               ? Colors.orange.shade100 
-              : Theme.of(context).colorScheme.surfaceContainerHighest,
+              : isFinished
+                  ? Colors.green.shade100
+                  : Theme.of(context).colorScheme.surfaceContainerHighest,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
                 children: [
                   Icon(
-                    isRushing ? Icons.timer : Icons.timer,
-                    color: _timeLeft <= 10 ? Colors.red : null,
+                    isFinished ? Icons.check_circle : Icons.timer,
+                    color: isFinished 
+                        ? Colors.green 
+                        : _timeLeft <= 10 ? Colors.red : null,
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    isRushing ? '抢答: $_timeLeft 秒' : '剩余: $_timeLeft 秒',
+                    isFinished 
+                        ? '✅ 游戏结束' 
+                        : isRushing 
+                            ? '抢答: $_timeLeft 秒' 
+                            : '剩余: $_timeLeft 秒',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: _timeLeft <= 10 ? Colors.red : null,
+                      color: isFinished 
+                          ? Colors.green 
+                          : _timeLeft <= 10 ? Colors.red : null,
                     ),
                   ),
                 ],
@@ -410,14 +420,15 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
           ),
         ),
         
-        // 数字卡片
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: _numbers.map((num) => _buildNumberCard(num)).toList(),
+        // 数字卡片（游戏结束时仍然显示）
+        if (_numbers.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: _numbers.map((num) => _buildNumberCard(num)).toList(),
+            ),
           ),
-        ),
         
         // 消息提示
         if (_message != null)
@@ -436,8 +447,28 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
             ),
           ),
         
-        // 表达式显示
-        if (!isFinished && (isRushing || isMyRush || _expression.isNotEmpty))
+        // 表达式显示（游戏结束时显示最终答案）
+        if (isFinished && _room?.winnerAnswer != null)
+          Container(
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              border: Border.all(color: Colors.green, width: 2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              '${_room!.winnerAnswer} = 24',
+              style: const TextStyle(
+                fontSize: 28,
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.bold,
+                color: Colors.green,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          )
+        else if (!isFinished && (isRushing || isMyRush || _expression.isNotEmpty))
           Container(
             margin: const EdgeInsets.all(16),
             padding: const EdgeInsets.all(16),
@@ -456,11 +487,14 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
             ),
           ),
         
-        // 自定义小键盘
-        if (!isFinished && (isRushing && isMyRush || _room!.players.any((p) => !p.isBot && p.id.startsWith('player_'))))
+        // 自定义小键盘（只在抢答且轮到自己时显示）
+        if (!isFinished && isRushing && isMyRush)
           Expanded(
-            child: _buildKeypad(isRushing && isMyRush),
-          ),
+            child: _buildKeypad(true),
+          )
+        // 如果不是抢答状态，显示空白占位
+        else if (!isFinished && !isRushing)
+          const Spacer(),
         
         // 抢答按钮
         if (_room?.state == GameState.playing)
@@ -480,37 +514,60 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
             ),
           ),
         
-        // 获胜者信息
-        if (isFinished && _room?.winnerId != null)
+        // 获胜者信息（游戏结束时显示）
+        if (isFinished)
           Padding(
             padding: const EdgeInsets.all(16),
-            child: Card(
-              color: Colors.green.shade100,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.emoji_events, color: Colors.amber, size: 32),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${_room!.players.firstWhere((p) => p.id == _room!.winnerId).name} 获胜！',
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                    if (_room!.winnerAnswer != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        '答案: ${_room!.winnerAnswer} = 24',
-                        style: const TextStyle(fontSize: 16, fontFamily: 'monospace'),
+            child: Column(
+              children: [
+                if (_room?.winnerId != null) ...[
+                  Card(
+                    color: Colors.green.shade100,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.emoji_events, color: Colors.amber, size: 32),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${_room!.players.firstWhere((p) => p.id == _room!.winnerId, orElse: () => _room!.players.first).name} 获胜！',
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                        ],
                       ),
-                    ],
-                  ],
+                    ),
+                  ),
+                ] else ...[
+                  Card(
+                    color: Colors.orange.shade100,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.timer_off, color: Colors.orange, size: 32),
+                          const SizedBox(width: 8),
+                          const Text(
+                            '时间到！无人答对',
+                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: FilledButton.icon(
+                    onPressed: _restart,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('再来一局'),
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
       ],
