@@ -655,18 +655,7 @@ class AppState extends ChangeNotifier {
       print('[DEBUG] Skill ID: $skillId');
       print('[DEBUG] 参数: $params');
       
-      // 1. 先尝试从 SkillManager 获取技能（动态加载的）
-      final skill = _skillManager.registry.get(skillId);
-      if (skill != null) {
-        print('[DEBUG] ✓ 从 SkillManager 找到技能: ${skill.metadata.name}');
-        final result = await _skillManager.executeSkill(skill, params);
-        print('[DEBUG] Skill 执行结果: $result');
-        return result;
-      }
-      
-      print('[DEBUG] SkillManager 中没有找到技能，回退到内置实现');
-      
-      // 2. 回退到内置实现（兼容旧版本）
+      // 1. 优先使用内置实现（更稳定）
       String? result;
       
       switch (skillId) {
@@ -720,31 +709,28 @@ class AppState extends ChangeNotifier {
           print('[DEBUG] 执行位置 Skill (内置)');
           result = await _executeLocationSkill(params);
           break;
-        
-        case 'web_search':
-          print('[DEBUG] 执行网页搜索 Skill (内置)');
-          result = await _executeWebSearchSkill(params);
-          break;
-        
-        case 'web_fetch':
-          print('[DEBUG] 执行网页获取 Skill (内置)');
-          result = await _executeWebFetchSkill(params);
-          break;
-        
-        default:
-          print('[DEBUG] ⚠️ 未知 Skill: $skillId');
-          return '⚠️ 未知的 Skill: $skillId。请先在"技能"页面安装此技能。';
       }
       
-      print('[DEBUG] Skill 执行成功');
-      print('[DEBUG] 结果: $result');
-      print('[DEBUG] ========== Skill 执行结束 ==========');
+      // 如果内置实现成功，直接返回
+      if (result != null) {
+        print('[DEBUG] ✓ 内置实现成功: $result');
+        return result;
+      }
       
-      return result;
-    } catch (e, stackTrace) {
-      print('[DEBUG] ❌ Skill 执行失败: $e');
-      print('[DEBUG] 堆栈跟踪: $stackTrace');
-      return '❌ Skill 执行失败: $e';
+      // 2. 如果内置实现不存在，尝试从 SkillManager 获取技能
+      final skill = _skillManager.registry.get(skillId);
+      if (skill != null) {
+        print('[DEBUG] ✓ 从 SkillManager 找到技能: ${skill.metadata.name}');
+        result = await _skillManager.executeSkill(skill, params);
+        print('[DEBUG] Skill 执行结果: $result');
+        return result;
+      }
+      
+      print('[DEBUG] 没有找到可执行的 Skill');
+      return null;
+    } catch (e) {
+      print('[DEBUG] Skill 执行失败: $e');
+      return 'Skill 执行失败: $e';
     }
   }
 
