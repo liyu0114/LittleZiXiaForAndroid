@@ -183,9 +183,55 @@ class _SkillHubScreenState extends State<SkillHubScreen> {
     try {
       final appState = context.read<AppState>();
       
-      // 生成技能内容（包含可执行指令）
-      final skillBody = _generateDefaultSkillBody(skill);
-      debugPrint('[SkillHub] 安装技能: ${skill.id}');
+      // 从 ClawHub 获取真实的 SKILL.md 内容
+      String? skillBody;
+      
+      // 1. 尝试从 Gateway API 获取
+      try {
+        final clawhub = ClawHubService();
+        skillBody = await clawhub.getSkillContent(skill.id);
+        debugPrint('[SkillHub] 从 API 获取技能内容: ${skill.id}');
+      } catch (e) {
+        debugPrint('[SkillHub] API 获取失败: $e');
+      }
+      
+      // 2. 如果 API 获取失败，尝试从 assets 加载
+      if (skillBody == null || skillBody.isEmpty) {
+        try {
+          // 尝试从 assets 加载预置技能
+          final existingSkill = appState.skillRegistry.get(skill.id);
+          if (existingSkill != null) {
+            skillBody = existingSkill.body;
+            debugPrint('[SkillHub] 使用预置技能: ${skill.id}');
+          }
+        } catch (e) {
+          debugPrint('[SkillHub] 预置技能加载失败: $e');
+        }
+      }
+      
+      // 3. 如果都没有，生成一个简单的默认内容
+      if (skillBody == null || skillBody.isEmpty) {
+        skillBody = '''---
+name: ${skill.name}
+description: ${skill.description}
+---
+
+# ${skill.name}
+
+${skill.description}
+
+## 使用方法
+
+此技能从 SkillHub 同步安装。
+
+## 注意
+
+此技能暂无可执行指令，请联系开发者完善。
+''';
+        debugPrint('[SkillHub] 使用默认内容: ${skill.id}');
+      }
+      
+      debugPrint('[SkillHub] 安装技能: ${skill.id}, body长度: ${skillBody.length}');
       
       // 创建技能对象
       final newSkill = Skill(
@@ -218,6 +264,7 @@ class _SkillHubScreenState extends State<SkillHubScreen> {
         );
       }
     } catch (e) {
+      debugPrint('[SkillHub] 安装失败: $e');
       setState(() {
         skill.isInstalling = false;
       });
@@ -233,75 +280,6 @@ class _SkillHubScreenState extends State<SkillHubScreen> {
     }
   }
   
-  /// 生成默认的技能 body
-  String _generateDefaultSkillBody(SkillHubItem skill) {
-    // 根据技能类型生成对应的指令
-    switch (skill.id) {
-      case 'weather':
-        return '''---
-name: weather
-description: ${skill.description}
----
-
-# Weather
-
-Get current weather and forecasts.
-
-## Current Weather
-
-\`\`\`http
-GET https://wttr.in/{location}?format=j1
-\`\`\`
-
-## Simple Format
-
-\`\`\`http
-GET https://wttr.in/{location}?format=3
-\`\`\`
-
-## Parameters
-
-- `location`: City name or coordinates (e.g., "Beijing", "40.7128,-74.0060")
-''';
-
-      case 'qrcode':
-        return '''---
-name: qrcode
-description: ${skill.description}
----
-
-# QR Code Generator
-
-Generate QR codes from text or URLs.
-
-## Generate QR Code
-
-\`\`\`http
-GET https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={content}
-\`\`\`
-
-## Parameters
-
-- `content`: Text or URL to encode
-- `size`: Image size (default: 300x300)
-''';
-
-      default:
-        return '''# ${skill.name}
-
-${skill.description}
-
-## 使用方法
-
-此技能从 SkillHub 同步安装。
-
-## 参数
-
-无特定参数。
-''';
-    }
-  }
-
   /// 卸载技能
   Future<void> _uninstallSkill(SkillHubItem skill) async {
     try {
