@@ -129,11 +129,14 @@ class ChatBotService extends ChangeNotifier {
   
   /// 生成回复
   Future<String?> generateReply(String recentMessage, String senderName) async {
+    debugPrint('[ChatBotService] 生成回复: $recentMessage');
+    
     // 1. 尝试使用技能
     if (_skillExecuteCallback != null) {
       try {
         final skillResult = await _tryExecuteSkill(recentMessage);
-        if (skillResult != null) {
+        if (skillResult != null && skillResult.isNotEmpty) {
+          debugPrint('[ChatBotService] 技能结果: $skillResult');
           return skillResult;
         }
       } catch (e) {
@@ -142,25 +145,31 @@ class ChatBotService extends ChangeNotifier {
     }
     
     // 2. 使用后备回复
-    return _generateFallbackReply(senderName);
+    final reply = _generateFallbackReply(recentMessage, senderName);
+    debugPrint('[ChatBotService] 后备回复: $reply');
+    return reply;
   }
   
   /// 尝试执行技能
   Future<String?> _tryExecuteSkill(String message) async {
-    if (_skillExecuteCallback == null) return null;
+    if (_skillExecuteCallback == null) {
+      debugPrint('[ChatBotService] 技能回调为空');
+      return null;
+    }
     
     // 天气技能
     if (message.contains('天气')) {
       final locationMatch = RegExp(r'(\w+)(?:的)?天气').firstMatch(message);
       final location = locationMatch?.group(1) ?? '北京';
       
+      debugPrint('[ChatBotService] 执行天气技能: location=$location');
       final result = await _skillExecuteCallback!(
         'weather',
         {'location': location},
       );
       
       if (result != null && result.isNotEmpty) {
-        return '【天气】$result';
+        return result;
       }
     }
     
@@ -171,38 +180,82 @@ class ChatBotService extends ChangeNotifier {
         final targetLang = translateMatch.group(1) ?? '英文';
         final text = translateMatch.group(2) ?? '';
         
+        debugPrint('[ChatBotService] 执行翻译技能: text=$text, to=$targetLang');
         final result = await _skillExecuteCallback!(
           'translate',
           {'text': text, 'from': 'zh', 'to': targetLang == '英文' ? 'en' : targetLang},
         );
         
         if (result != null && result.isNotEmpty) {
-          return '【翻译】$result';
+          return result;
         }
       }
+    }
+    
+    // 自我介绍
+    if (message.contains('介绍') && (message.contains('自己') || message.contains('你'))) {
+      return '我是小紫霞，一个 AI 助手！我可以帮你查天气、翻译、讲笑话，还可以陪你聊天~ 有什么我可以帮你的吗？';
+    }
+    
+    // 技能列表
+    if (message.contains('技能') || message.contains('会什么')) {
+      return '我会的东西可多啦！\n\n🌤️ 查天气：问我任何城市的天气\n🌐 翻译：我可以中英文互译\n😄 讲笑话：想开心就问我\n💬 聊天：随时陪你聊天\n\n还有什么想知道的吗？';
+    }
+    
+    // 笑话
+    if (message.contains('笑话') || message.contains('搞笑')) {
+      final jokes = [
+        '为什么程序员总是分不清万圣节和圣诞节？因为 Oct 31 == Dec 25！😂',
+        '从前有个包子，走在路上觉得饿了，就把自己吃了。🥟',
+        '为什么鱼不会说话？因为它们只会吐泡泡！🐟',
+        '小明：妈妈，我是从哪里来的？妈妈：捡来的。小明：那我弟弟呢？妈妈：也是捡来的。小明：你们还会捡啊？😅',
+        '医生对病人说：你的病很严重，只能活三个字了。病人：什么字？医生：你看吧。😵',
+      ];
+      return jokes[_random.nextInt(jokes.length)];
     }
     
     return null;
   }
   
   /// 后备回复（技能不可用时）
-  String _generateFallbackReply(String senderName) {
+  String _generateFallbackReply(String message, String senderName) {
+    // 根据消息内容生成更智能的回复
+    if (message.contains('?') || message.contains('？')) {
+      // 问题类型
+      final questionReplies = [
+        '这个问题很有意思，让我想想...',
+        '嗯，我觉得这是个好问题！',
+        '关于这个，我也在思考中~',
+        '你说得对，确实值得讨论！',
+      ];
+      return questionReplies[_random.nextInt(questionReplies.length)];
+    }
+    
+    if (message.contains('哈哈') || message.contains('😂') || message.contains('好笑')) {
+      // 幽默回应
+      return '哈哈，看起来你很开心呀~';
+    }
+    
+    if (message.contains('不对') || message.contains('错了') || message.contains('傻')) {
+      // 被批评时的回应
+      final sorryReplies = [
+        '抱歉抱歉，我刚才理解错了~',
+        '哎呀，我的错，让我重新想想...',
+        '不好意思，我会努力的！',
+        '嗯，你说得对，我需要改进~',
+      ];
+      return sorryReplies[_random.nextInt(sorryReplies.length)];
+    }
+    
+    // 普通回复
     final replies = [
       '嗯嗯，有意思！',
-      '哈哈，${senderName}说得好~',
-      '这个话题很有意思呢！',
-      '我同意${senderName}的看法~',
-      '哦？继续说说看？',
-      '确实是这样呢~',
-      '哈哈，好有趣！',
+      '这个观点很棒！',
+      '我明白你的意思了~',
+      '确实是这样呢！',
+      '说得很好！',
+      '有道理！',
       '我也这么觉得~',
-      '嗯，有道理！',
-      '哈哈，你们聊得真开心~',
-      '这个我赞同！',
-      '说得对~',
-      '确实！我也这么想。',
-      '有意思，继续~',
-      '学习了！',
     ];
     
     return replies[_random.nextInt(replies.length)];

@@ -80,16 +80,19 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final bot = ChatBotService(
       skillExecuteCallback: (skillId, params) async {
         try {
-          return await appState.executeSkill(skillId, params);
+          debugPrint('[GroupChat] 执行技能: $skillId, params: $params');
+          final result = await appState.executeSkill(skillId, params);
+          debugPrint('[GroupChat] 技能结果: $result');
+          return result;
         } catch (e) {
           debugPrint('[GroupChat] 技能执行失败: $e');
           return null;
         }
       },
       config: BotConfig.defaultBot(),
-      replyProbability: 0.3,
-      minReplyDelay: 1500,
-      maxReplyDelay: 4000,
+      replyProbability: 0.15,  // 降低随机回复概率到 15%
+      minReplyDelay: 2000,
+      maxReplyDelay: 5000,
     );
     
     setState(() {
