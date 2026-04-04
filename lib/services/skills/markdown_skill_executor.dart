@@ -12,6 +12,7 @@ import 'markdown_skill_parser.dart';
 import '../native/location_service.dart';
 import '../native/notification_service.dart';
 import '../native/shell_service.dart';
+import '../capabilities/capability_registry.dart';
 
 /// Skill 执行结果
 class SkillExecutionResult {
@@ -366,6 +367,64 @@ class MarkdownSkillExecutor {
       );
     } catch (e) {
       return SkillExecutionResult.error('Bash 执行失败: $e');
+    }
+  }
+
+  /// 执行 Use 指令（调用基础能力）
+  Future<SkillExecutionResult> _executeUse(UseInstruction instruction) async {
+    try {
+      final capability = instruction.capability;
+      final params = instruction.params;
+      
+      debugPrint('[SkillExecutor] 执行 Use 指令: \, params: ');
+      
+      // 能力名称映射
+      final capabilityMap = {
+        'location': CapabilityType.location,
+        'gps': CapabilityType.location,
+        'tts': CapabilityType.speech,
+        'speech': CapabilityType.speech,
+        'speak': CapabilityType.speech,
+        'notification': CapabilityType.notification,
+        'notify': CapabilityType.notification,
+        'network': CapabilityType.network,
+        'http': CapabilityType.network,
+        'camera': CapabilityType.camera,
+        'vision': CapabilityType.vision,
+        'sensor': CapabilityType.sensor,
+        'bluetooth': CapabilityType.bluetooth,
+        'nfc': CapabilityType.nfc,
+        'file': CapabilityType.file,
+        'shell': CapabilityType.shell,
+        'memory': CapabilityType.memory,
+        'storage': CapabilityType.memory,
+      };
+      
+      final capabilityType = capabilityMap[capability.toLowerCase()];
+      
+      if (capabilityType == null) {
+        return SkillExecutionResult.error('未知的能力: ');
+      }
+      
+      // 检查能力是否可用
+      final registry = CapabilityRegistry();
+      if (!registry.isAvailable(capabilityType)) {
+        return SkillExecutionResult.error('能力 \ 不可用');
+      }
+      
+      // 执行能力
+      final result = await registry.execute(capabilityType, params);
+      
+      // 格式化结果
+      if (result is Map) {
+        return SkillExecutionResult.success(result.toString());
+      } else if (result is String) {
+        return SkillExecutionResult.success(result);
+      } else {
+        return SkillExecutionResult.success(result?.toString() ?? '执行成功');
+      }
+    } catch (e) {
+      return SkillExecutionResult.error('Use 指令执行失败: ');
     }
   }
 }

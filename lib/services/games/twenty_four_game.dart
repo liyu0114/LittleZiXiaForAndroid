@@ -5,6 +5,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:logger/logger.dart';
+import 'twenty_four_score.dart';  // 记分服务
 
 /// 游戏状态
 enum GameState {
@@ -75,6 +76,9 @@ class GameRoom {
 class TwentyFourGameService {
   final Logger _logger = Logger();
   final Random _random = Random();
+  
+  // 记分服务
+  final TwentyFourScoreService _scoreService = TwentyFourScoreService();
   
   // 当前题目
   List<int> _currentNumbers = [];
@@ -451,11 +455,14 @@ class TwentyFourGameService {
   }
   
   /// 结束游戏
-  void _endGame({String? winnerId, String? answer}) {
+  void _endGame({String? winnerId, String? answer}) async {
     _gameTimer?.cancel();
     _currentRoom!.state = GameState.finished;
     _currentRoom!.winnerId = winnerId;
     _currentRoom!.winnerAnswer = answer;
+    
+    // 初始化记分服务
+    await _scoreService.initialize();
     
     if (winnerId != null) {
       // 使用 firstWhere 的 orElse 参数避免抛出异常
@@ -467,11 +474,30 @@ class TwentyFourGameService {
         winner.score++;
         _logger.i('${winner.name} 获胜！答案: $answer');
         
+        // 记录游戏结果
+        await _scoreService.recordGame(
+          playerId: winner.id,
+          playerName: winner.name,
+          isWin: true,
+          answer: answer,
+        );
+        
         if (answer != null) {
-          _messageController.add('🎉 ${winner.name} 获胜！\n答案: $answer = 24');
+          final stats = _scoreService.getPlayerStats(winner.id);
+          _messageController.add('🎉 ${winner.name} 获胜！\n答案: $answer = 24\n\n$stats');
         }
       }
     } else {
+      // 记录所有玩家的失败
+      for (final player in _currentRoom?.players ?? []) {
+        if (!player.isBot) {
+          await _scoreService.recordGame(
+            playerId: player.id,
+            playerName: player.name,
+            isWin: false,
+          );
+        }
+      }
       _messageController.add('⏰ 时间到！无人答对');
     }
     

@@ -223,6 +223,14 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
 
   /// 添加机器人到群聊
   void _addBot() {
+    // 只有主机可以添加机器人
+    if (!_isHost) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⚠️ 只有主机可以添加机器人')),
+      );
+      return;
+    }
+    
     // 如果机器人服务未创建，先创建
     if (_botService == null) {
       final appState = context.read<AppState>();
@@ -263,8 +271,8 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
       });
     });
     
-    // 如果是主机，广播更新
-    if (_isHost && _networkService != null) {
+    // 主机广播更新
+    if (_networkService != null) {
       _broadcastPlayerList();
     }
     

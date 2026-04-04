@@ -17,6 +17,12 @@ abstract class SkillInstruction {
   /// 从代码块解析指令
   factory SkillInstruction.fromCodeBlock(String language, String code) {
     final lang = language.toLowerCase();
+    
+    // 检查是否是 use: 指令
+    if (code.trim().startsWith('use:')) {
+      return UseInstruction.fromCode(code);
+    }
+    
     if (lang == 'bash' || lang == 'sh' || lang == 'shell') {
       return BashInstruction(code: code);
     } else if (lang == 'http' || lang == 'curl') {
@@ -119,3 +125,47 @@ class GenericInstruction extends SkillInstruction {
   GenericInstruction({required String language, required String code})
       : super(language: language, code: code);
 }
+
+/// Use 指令（调用基础能力）
+class UseInstruction extends SkillInstruction {
+  final String capability;  // 能力名称，如 'location', 'tts', 'http'
+  final Map<String, dynamic> params;
+
+  UseInstruction({
+    required this.capability,
+    this.params = const {},
+  }) : super(language: 'use', code: '');
+
+  /// 从代码解析
+  /// 格式: use: capability_name
+  /// 或: use: capability_name(param1=value1, param2=value2)
+  factory UseInstruction.fromCode(String code) {
+    final trimmed = code.trim();
+    
+    // 解析格式: use: capability 或 use: capability(params)
+    final match = RegExp(r'use:\s*(\w+)(?:\((.+)\))?').firstMatch(trimmed);
+    
+    if (match == null) {
+      return UseInstruction(capability: 'unknown');
+    }
+    
+    final capability = match.group(1) ?? 'unknown';
+    final paramsStr = match.group(2);
+    
+    final params = <String, dynamic>{};
+    if (paramsStr != null) {
+      // 解析参数: key=value, key="value with spaces"
+      final paramPattern = RegExp(r'(\w+)=["\x27]?([^,)\x27"]+)["\x27]?');
+      for (final paramMatch in paramPattern.allMatches(paramsStr)) {
+        final key = paramMatch.group(1);
+        final value = paramMatch.group(2);
+        if (key != null && value != null) {
+          params[key] = value;
+        }
+      }
+    }
+    
+    return UseInstruction(capability: capability, params: params);
+  }
+}
+
