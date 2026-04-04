@@ -145,7 +145,9 @@ class MarkdownSkillExecutor {
       }
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
-        return SkillExecutionResult.success(response.body);
+        // 强制使用 UTF-8 解码，避免中文乱码
+        final body = utf8.decode(response.bodyBytes);
+        return SkillExecutionResult.success(body);
       } else {
         return SkillExecutionResult.error('HTTP ${response.statusCode}: ${response.body}');
       }

@@ -46,6 +46,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   
   // 机器人列表
   final List<ChatBotService> _bots = [];
+  int _botCounter = 0;  // 机器人计数器，用于命名
   
   // 是否已初始化
   bool _initialized = false;
@@ -73,9 +74,34 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     super.dispose();
   }
   
+  /// 格式化时间（微信风格）
+  String _formatTime(DateTime time) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final messageDate = DateTime(time.year, time.month, time.day);
+    
+    final timeStr = '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    
+    if (messageDate == today) {
+      return timeStr;
+    } else if (messageDate == today.subtract(const Duration(days: 1))) {
+      return '昨天 $timeStr';
+    } else {
+      return '${time.month}/${time.day} $timeStr';
+    }
+  }
+  
   /// 添加机器人
   void _addBot() {
     final appState = context.read<AppState>();
+    _botCounter++;
+    
+    // 创建唯一命名的机器人配置
+    final botConfig = BotConfig(
+      id: 'bot_${DateTime.now().millisecondsSinceEpoch}',
+      name: '小紫霞$_botCounter',
+      personality: '友好、幽默、乐于助人的 AI 助手',
+    );
     
     final bot = ChatBotService(
       skillExecuteCallback: (skillId, params) async {
@@ -89,7 +115,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           return null;
         }
       },
-      config: BotConfig.defaultBot(),
+      config: botConfig,
       replyProbability: 0.15,  // 降低随机回复概率到 15%
       minReplyDelay: 2000,
       maxReplyDelay: 5000,
@@ -402,10 +428,30 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _formatTime(msg.time),
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               if (!isMe) const SizedBox(height: 4),
                               Text(msg.content),
+                              if (isMe)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    _formatTime(msg.time),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                    textAlign: TextAlign.right,
+                                  ),
+                                ),
                             ],
                           ),
                         ),
