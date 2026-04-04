@@ -223,34 +223,59 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
 
   /// 添加机器人到群聊
   void _addBot() {
+    // 如果机器人服务未创建，先创建
     if (_botService == null) {
-      // 刯建机器人
-      final botId = _botService!.botId;
-      final botName = _botService!.botName;
-      
-      setState(() {
-        _players.add({
-          'id': botId,
-          'name': botName,
-          'isHost': false,
-          'isBot': true,
-        });
-      });
-      
-      // 如果是主机，广播更新
-      if (_isHost) {
-        _broadcastPlayerList();
-      }
-      
-      // 机器人发送欢迎消息
-      Future.delayed(const Duration(milliseconds: 500), () {
-        _sendBotWelcomeMessage();
-      });
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('✅ 机器人 $botName 已加入群聊')),
+      final appState = context.read<AppState>();
+      _botService = ChatBotService(
+        skillExecuteCallback: (skillId, params) async {
+          try {
+            return await appState.executeSkill(skillId, params);
+          } catch (e) {
+            debugPrint('[NetworkChat] 技能执行失败: $e');
+            return null;
+          }
+        },
+        config: BotConfig(
+          id: 'bot_${DateTime.now().millisecondsSinceEpoch}',
+          name: '小紫霞',
+        ),
       );
     }
+    
+    final botId = _botService!.botId;
+    final botName = _botService!.botName;
+    
+    // 检查机器人是否已在玩家列表
+    final botExists = _players.any((p) => p['id'] == botId);
+    if (botExists) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⚠️ 机器人已在群聊中')),
+      );
+      return;
+    }
+    
+    setState(() {
+      _players.add({
+        'id': botId,
+        'name': botName,
+        'isHost': false,
+        'isBot': true,
+      });
+    });
+    
+    // 如果是主机，广播更新
+    if (_isHost && _networkService != null) {
+      _broadcastPlayerList();
+    }
+    
+    // 机器人发送欢迎消息
+    Future.delayed(const Duration(milliseconds: 500), () {
+      _sendBotWelcomeMessage();
+    });
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('✅ 机器人 $botName 已加入群聊')),
+    );
   }
   
   /// 开始群聊（主机）
