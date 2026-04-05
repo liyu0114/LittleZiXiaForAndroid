@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import '../services/chat/group_chat_service.dart';
 import '../services/chat/p2p_messaging.dart';
 import '../services/chat/chat_bot_service.dart';
@@ -507,6 +508,139 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
     }
   }
 
+  /// 发送视频
+  void _sendVideo() async {
+    try {
+      final XFile? video = await _imagePicker.pickVideo(
+        source: ImageSource.gallery,
+        maxDuration: const Duration(seconds: 15),
+      );
+
+      if (video == null) return;
+
+      // 检查文件大小（限制1MB）
+      final file = File(video.path);
+      final bytes = await file.readAsBytes();
+      if (bytes.length > 1024 * 1024) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('视频太大，请选择小于1MB的视频')),
+          );
+        }
+        return;
+      }
+
+      // 转为base64
+      final base64Str = base64Encode(bytes);
+
+      // 发送视频消息
+      final message = P2PMessage(
+        type: P2PMessageType.fileTransfer,
+        fromId: _localUserId!,
+        fromName: _localUserName,
+        payload: {
+          'action': 'video',
+          'base64': base64Str,
+          'fileName': video.name,
+        },
+      );
+
+      setState(() {
+        _messages.add({
+          'userId': _localUserId,
+          'userName': _localUserName,
+          'videoBase64': base64Str,
+          'fileName': video.name,
+          'time': DateTime.now(),
+        });
+      });
+
+      if (_isHost) {
+        _networkService?.broadcast(message);
+      } else {
+        final connections = _networkService?.connections ?? [];
+        if (connections.isNotEmpty) {
+          _networkService?.sendTo(connections.first.deviceId, message);
+        }
+      }
+    } catch (e) {
+      debugPrint('[NetworkChat] 发送视频失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('发送视频失败: $e')),
+        );
+      }
+    }
+  }
+
+  /// 发送文件
+  void _sendFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'doc', 'docx', 'txt', 'zip'],
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      final file = File(result.files.first.path!);
+      final bytes = await file.readAsBytes();
+
+      // 检查文件大小（限制1MB）
+      if (bytes.length > 1024 * 1024) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('文件太大，请选择小于1MB的文件')),
+          );
+        }
+        return;
+      }
+
+      // 转为base64
+      final base64Str = base64Encode(bytes);
+
+      // 发送文件消息
+      final message = P2PMessage(
+        type: P2PMessageType.fileTransfer,
+        fromId: _localUserId!,
+        fromName: _localUserName,
+        payload: {
+          'action': 'file',
+          'base64': base64Str,
+          'fileName': result.files.first.name,
+          'fileSize': bytes.length,
+        },
+      );
+
+      setState(() {
+        _messages.add({
+          'userId': _localUserId,
+          'userName': _localUserName,
+          'fileBase64': base64Str,
+          'fileName': result.files.first.name,
+          'fileSize': bytes.length,
+          'time': DateTime.now(),
+        });
+      });
+
+      if (_isHost) {
+        _networkService?.broadcast(message);
+      } else {
+        final connections = _networkService?.connections ?? [];
+        if (connections.isNotEmpty) {
+          _networkService?.sendTo(connections.first.deviceId, message);
+        }
+      }
+    } catch (e) {
+      debugPrint('[NetworkChat] 发送文件失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('发送文件失败: $e')),
+        );
+      }
+    }
+  }
+
   void _showJoinDialog() {
     final ipController = TextEditingController();
     
@@ -912,6 +1046,61 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
                           if (msg['content'] != null && msg['content'].toString().isNotEmpty)
                             const SizedBox(height: 8),
                         ],
+                        // 显示视频
+                        if (msg['videoBase64'] != null) ...[
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade300,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.videocam, size: 24),
+                                const SizedBox(width: 8),
+                                Text(msg['fileName'] ?? '视频文件'),
+                              ],
+                            ),
+                          ),
+                          if (msg['content'] != null && msg['content'].toString().isNotEmpty)
+                            const SizedBox(height: 8),
+                        ],
+                        // 显示文件
+                        if (msg['fileBase64'] != null) ...[
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade300,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.attach_file, size: 24),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        msg['fileName'] ?? '文件',
+                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                      ),
+                                      if (msg['fileSize'] != null)
+                                        Text(
+                                          '${(msg['fileSize'] / 1024).toStringAsFixed(1)} KB',
+                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (msg['content'] != null && msg['content'].toString().isNotEmpty)
+                            const SizedBox(height: 8),
+                        ],
                         // 显示文字
                         if (msg['content'] != null && msg['content'].toString().isNotEmpty)
                           Text(msg['content']),
@@ -936,6 +1125,18 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
                 IconButton(
                   onPressed: _sendImage,
                   icon: const Icon(Icons.image),
+                  color: Colors.grey.shade600,
+                ),
+                // 视频按钮
+                IconButton(
+                  onPressed: _sendVideo,
+                  icon: const Icon(Icons.videocam),
+                  color: Colors.grey.shade600,
+                ),
+                // 文件按钮
+                IconButton(
+                  onPressed: _sendFile,
+                  icon: const Icon(Icons.attach_file),
                   color: Colors.grey.shade600,
                 ),
                 Expanded(
