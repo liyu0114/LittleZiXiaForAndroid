@@ -41,6 +41,7 @@ class GameRoom {
   String? winnerId;
   String? winnerAnswer;
   String? rushingPlayerId;
+  List<String> allSolutions;  // 所有解法
 
   GameRoom({
     required this.id,
@@ -52,6 +53,7 @@ class GameRoom {
     this.winnerId,
     this.winnerAnswer,
     this.rushingPlayerId,
+    this.allSolutions = const [],
   });
 
   Map<String, dynamic> toJson() => {
@@ -69,6 +71,7 @@ class GameRoom {
     'winnerId': winnerId,
     'winnerAnswer': winnerAnswer,
     'rushingPlayerId': rushingPlayerId,
+    'allSolutions': allSolutions,
   };
 }
 
@@ -210,43 +213,77 @@ class TwentyFourGameService {
     for (int i = 0; i < 4; i++) {
       _currentNumbers.add(_random.nextInt(13) + 1);
     }
-    
-    // 预计算一个答案
-    _botAnswer = _findSolution(_currentNumbers);
-    
+
+    // 预计算所有答案
+    final solutions = _findAllSolutions(_currentNumbers);
+
     // 如果没有解，重新生成
-    if (_botAnswer == null) {
+    if (solutions.isEmpty) {
       _generateNumbers();
+    } else {
+      // 存储所有解法
+      if (_currentRoom != null) {
+        _currentRoom!.allSolutions = solutions;
+      }
+      // 机器人使用第一个答案
+      _botAnswer = solutions.first;
     }
   }
-  
-  /// 查找24点解法
-  String? _findSolution(List<int> nums) {
+
+  /// 查找24点所有解法
+  List<String> _findAllSolutions(List<int> nums) {
+    final solutions = <String>[];
     final ops = ['+', '-', '*', '/'];
-    
-    for (var op1 in ops) {
-      for (var op2 in ops) {
-        for (var op3 in ops) {
-          final expressions = [
-            '((${nums[0]} $op1 ${nums[1]}) $op2 ${nums[2]}) $op3 ${nums[3]}',
-            '(${nums[0]} $op1 (${nums[1]} $op2 ${nums[2]})) $op3 ${nums[3]}',
-            '(${nums[0]} $op1 ${nums[1]}) $op2 (${nums[2]} $op3 ${nums[3]})',
-            '${nums[0]} $op1 ((${nums[1]} $op2 ${nums[2]}) $op3 ${nums[3]})',
-            '${nums[0]} $op1 (${nums[1]} $op2 (${nums[2]} $op3 ${nums[3]}))',
-          ];
-          
-          for (var expr in expressions) {
-            try {
-              if (_evaluateExpression(expr) == 24) {
-                return expr;
-              }
-            } catch (_) {}
+
+    // 生成所有数字排列
+    final perms = _permutations(nums);
+
+    for (var perm in perms) {
+      for (var op1 in ops) {
+        for (var op2 in ops) {
+          for (var op3 in ops) {
+            final expressions = [
+              '((${perm[0]} $op1 ${perm[1]}) $op2 ${perm[2]}) $op3 ${perm[3]}',
+              '(${perm[0]} $op1 (${perm[1]} $op2 ${perm[2]})) $op3 ${perm[3]}',
+              '(${perm[0]} $op1 ${perm[1]}) $op2 (${perm[2]} $op3 ${perm[3]})',
+              '${perm[0]} $op1 ((${perm[1]} $op2 ${perm[2]}) $op3 ${perm[3]})',
+              '${perm[0]} $op1 (${perm[1]} $op2 (${perm[2]} $op3 ${perm[3]}))',
+            ];
+
+            for (var expr in expressions) {
+              try {
+                if (_evaluateExpression(expr) == 24) {
+                  // 美化表达式（转换运算符）
+                  final beautified = expr
+                      .replaceAll('*', '×')
+                      .replaceAll('/', '÷');
+                  if (!solutions.contains(beautified)) {
+                    solutions.add(beautified);
+                  }
+                }
+              } catch (_) {}
+            }
           }
         }
       }
     }
-    
-    return null;
+
+    return solutions;
+  }
+
+  /// 生成数组的所有排列
+  List<List<int>> _permutations(List<int> nums) {
+    if (nums.length <= 1) return [nums];
+
+    final result = <List<int>>[];
+    for (int i = 0; i < nums.length; i++) {
+      final current = nums[i];
+      final remaining = [...nums.sublist(0, i), ...nums.sublist(i + 1)];
+      for (var perm in _permutations(remaining)) {
+        result.add([current, ...perm]);
+      }
+    }
+    return result;
   }
   
   /// 开始计时

@@ -1,31 +1,134 @@
 // 群聊机器人服务
 //
-// 为群聊提供 AI 机器人参与对话（支持技能系统）
+// 为群聊提供 AI 机器人参与对话（支持技能系统 + 角色分工 + 协作）
 
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 
+/// 机器人角色
+enum BotRole {
+  assistant,    // 通用助手（默认）
+  document,     // 文档专家 - 处理文档相关问题
+  qa,          // 质检专家 - 检查代码、文档质量
+  translator,   // 翻译专家 - 多语言翻译
+  coder,       // 编程专家 - 代码相关
+  analyst,     // 分析师 - 数据分析
+}
+
 /// 机器人配置
 class BotConfig {
   final String id;
   final String name;
-  final String personality;  // 个性描述
+  final BotRole role;  // 角色类型
+  final String personality;  // 个性描述（根据角色自动生成）
   final bool enabled;
-  
+
   BotConfig({
     required this.id,
     required this.name,
-    this.personality = '友好、幽默、乐于助人',
+    this.role = BotRole.assistant,
+    String? personality,
     this.enabled = true,
-  });
-  
+  }) : personality = personality ?? _getDefaultPersonality(role);
+
+  /// 根据角色生成个性描述
+  static String _getDefaultPersonality(BotRole role) {
+    switch (role) {
+      case BotRole.assistant:
+        return '友好、幽默、乐于助人的 AI 助手，会用简洁的方式回复，偶尔会开玩笑';
+      case BotRole.document:
+        return '专业的文档编写专家，擅长撰写清晰、结构化的技术文档，注重文档的可读性和完整性';
+      case BotRole.qa:
+        return '严格的质检专家，擅长发现代码和文档中的问题，提供详细的改进建议，注重细节和规范';
+      case BotRole.translator:
+        return '专业的多语言翻译专家，擅长中英互译，注重准确性和本地化表达';
+      case BotRole.coder:
+        return '经验丰富的编程专家，擅长多种编程语言，注重代码质量、性能优化和最佳实践';
+      case BotRole.analyst:
+        return '专业的数据分析师，擅长数据挖掘、统计分析，善于从数据中发现洞察和趋势';
+    }
+  }
+
+  /// 获取角色的 System Prompt
+  String get systemPrompt {
+    final basePrompt = '你是$name，一个$personality。';
+
+    switch (role) {
+      case BotRole.assistant:
+        return basePrompt + '你可以回答各种问题，提供帮助和建议。';
+
+      case BotRole.document:
+        return basePrompt +
+          '你的职责是：\n'
+          '1. 帮助用户编写和改进文档\n'
+          '2. 提供文档结构和内容建议\n'
+          '3. 检查文档的清晰度和完整性\n'
+          '4. 当需要质量检查时，提醒用户@质检专家\n'
+          '回复要专业、结构化，使用 markdown 格式。';
+
+      case BotRole.qa:
+        return basePrompt +
+          '你的职责是：\n'
+          '1. 检查代码和文档的质量\n'
+          '2. 发现潜在问题和风险\n'
+          '3. 提供具体的改进建议\n'
+          '4. 确保符合最佳实践和规范\n'
+          '回复要严格、详细，列出所有发现的问题。';
+
+      case BotRole.translator:
+        return basePrompt +
+          '你的职责是：\n'
+          '1. 提供准确的中英互译\n'
+          '2. 注重本地化表达\n'
+          '3. 解释翻译选择的理由（必要时）\n'
+          '4. 提供多种翻译选项\n'
+          '回复要简洁、准确。';
+
+      case BotRole.coder:
+        return basePrompt +
+          '你的职责是：\n'
+          '1. 编写高质量的代码\n'
+          '2. 提供性能优化建议\n'
+          '3. 解决编程问题\n'
+          '4. 当需要质量检查时，提醒用户@质检专家\n'
+          '回复要包含代码示例，使用 markdown 代码块。';
+
+      case BotRole.analyst:
+        return basePrompt +
+          '你的职责是：\n'
+          '1. 分析数据和趋势\n'
+          '2. 提供统计洞察\n'
+          '3. 可视化数据（使用表格或图表描述）\n'
+          '4. 提供数据驱动的建议\n'
+          '回复要基于数据，提供具体数字和结论。';
+    }
+  }
+
   /// 默认机器人
   static BotConfig defaultBot() => BotConfig(
     id: 'bot_xiaozixia',
     name: '小紫霞',
-    personality: '友好、幽默、乐于助人的 AI 助手，会用简洁的方式回复，偶尔会开玩笑',
+    role: BotRole.assistant,
   );
+
+  /// 根据角色创建机器人
+  static BotConfig createWithRole(BotRole role, int index) {
+    final names = {
+      BotRole.assistant: '小紫霞',
+      BotRole.document: '文档专家',
+      BotRole.qa: '质检专家',
+      BotRole.translator: '翻译专家',
+      BotRole.coder: '编程专家',
+      BotRole.analyst: '分析师',
+    };
+
+    return BotConfig(
+      id: 'bot_${role.name}_$index',
+      name: names[role]!,
+      role: role,
+    );
+  }
 }
 
 /// 技能执行回调
@@ -73,6 +176,7 @@ class ChatBotService extends ChangeNotifier {
 
   String get botId => _config.id;
   String get botName => _config.name;
+  BotConfig get config => _config;  // 添加 config getter
   
   /// 添加消息到历史
   void addToHistory(String userId, String userName, String content) {

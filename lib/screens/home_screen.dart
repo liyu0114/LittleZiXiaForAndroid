@@ -37,7 +37,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 12, vsync: this);  // 12 个 tab（新增游戏）
+    _tabController = TabController(length: 12, vsync: this);  // 12 个 tab
   }
 
   Future<void> _sendMessage() async {
@@ -132,13 +132,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
           tabs: const [
             Tab(icon: Icon(Icons.chat), text: '对话'),
+            Tab(icon: Icon(Icons.games), text: '24点'),  // 移到对话后面
             Tab(icon: Icon(Icons.smart_toy), text: '模型'),
             Tab(icon: Icon(Icons.tune), text: '能力'),
             Tab(icon: Icon(Icons.extension), text: '技能'),
             Tab(icon: Icon(Icons.cloud_download), text: 'SkillHub'),
             Tab(icon: Icon(Icons.auto_fix_high), text: '生命周期'),
             Tab(icon: Icon(Icons.people), text: '群聊'),
-            Tab(icon: Icon(Icons.games), text: '24点'),  // 新增游戏
             Tab(icon: Icon(Icons.sensors), text: '传感器'),
             Tab(icon: Icon(Icons.settings), text: '设置'),
             Tab(icon: Icon(Icons.cloud), text: 'Gateway'),
@@ -164,7 +164,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ),
                     onPressed: () {
                       if (!appState.hasLLMConfig) {
-                        _tabController.animateTo(1);
+                        _tabController.animateTo(2);  // 跳到模型页
                       }
                     },
                     tooltip: appState.hasLLMConfig ? '已配置' : '未配置',
@@ -182,13 +182,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             controller: _tabController,
             children: [
               _buildChatTab(),
+              const TwentyFourGameScreen(),  // 移到对话后面
               const LLMConfigScreen(),
               const CapabilityScreen(),
               const SkillsScreenV2(),
               const SkillHubScreen(),
               const SkillLifecycleScreen(),
-              const GroupChatEntryScreen(),  // 新增群聊入口
-              const TwentyFourGameScreen(),  // 新增24点游戏
+              const GroupChatEntryScreen(),
               const SensorDataScreen(),
               const SettingsScreen(),
               const GatewayDashboard(),
@@ -366,7 +366,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           const Text('在"模型"标签页配置 API Key', style: TextStyle(fontSize: 14, color: Colors.grey)),
           const SizedBox(height: 24),
           ElevatedButton.icon(
-            onPressed: () => _tabController.animateTo(1),
+            onPressed: () => _tabController.animateTo(2),  // 模型页现在是第3页（index 2）
             icon: const Icon(Icons.arrow_forward),
             label: const Text('去配置'),
           ),

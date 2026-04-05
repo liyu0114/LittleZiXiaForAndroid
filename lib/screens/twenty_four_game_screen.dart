@@ -168,13 +168,13 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
             children: [
               Text('游戏设置', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 24),
-              
+
               // 机器人让时
               Text('机器人让时: ${_botDelay}秒'),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
-                children: [30, 60, 90, 120, 150, 180].map((s) => 
+                children: [30, 60, 90, 120, 150, 180].map((s) =>
                   ChoiceChip(
                     label: Text('${s}秒'),
                     selected: _botDelay == s,
@@ -187,15 +187,15 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
                   ),
                 ).toList(),
               ),
-              
+
               const SizedBox(height: 24),
-              
+
               // 抢答时间
               Text('抢答输入时间: ${_rushTime}秒'),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
-                children: [15, 20, 30, 45, 60].map((s) => 
+                children: [15, 20, 30, 45, 60].map((s) =>
                   ChoiceChip(
                     label: Text('${s}秒'),
                     selected: _rushTime == s,
@@ -208,9 +208,9 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
                   ),
                 ).toList(),
               ),
-              
+
               const SizedBox(height: 24),
-              
+
               FilledButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('确定'),
@@ -221,7 +221,61 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
       ),
     );
   }
-  
+
+  void _showSolutions() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.lightbulb, color: Colors.orange.shade700),
+            const SizedBox(width: 8),
+            Text('答案公布 (${_room!.allSolutions.length}种解法)'),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: ListView.builder(
+            itemCount: _room!.allSolutions.length,
+            itemBuilder: (context, index) {
+              final solution = _room!.allSolutions[index];
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.orange.shade100,
+                    child: Text(
+                      '${index + 1}',
+                      style: TextStyle(
+                        color: Colors.orange.shade900,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  title: Text(
+                    '$solution = 24',
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -558,6 +612,23 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
                   ),
                 ],
                 const SizedBox(height: 16),
+
+                // 查看答案按钮
+                if (_room?.allSolutions.isNotEmpty == true)
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      onPressed: _showSolutions,
+                      icon: const Icon(Icons.lightbulb_outline),
+                      label: Text('查看答案 (${_room!.allSolutions.length}种解法)'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.orange.shade800,
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+
                 SizedBox(
                   width: double.infinity,
                   height: 48,
