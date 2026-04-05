@@ -454,13 +454,13 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
 
       if (image == null) return;
 
-      // 检查文件大小（限制500KB）
+      // 检查文件大小（限制2MB，从500KB提高）
       final file = File(image.path);
       final bytes = await file.readAsBytes();
-      if (bytes.length > 500 * 1024) {
+      if (bytes.length > 2 * 1024 * 1024) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('图片太大，请选择小于500KB的图片')),
+            const SnackBar(content: Text('图片太大，请选择小于2MB的图片')),
           );
         }
         return;
@@ -518,13 +518,13 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
 
       if (video == null) return;
 
-      // 检查文件大小（限制1MB）
+      // 检查文件大小（限制5MB，从1MB提高）
       final file = File(video.path);
       final bytes = await file.readAsBytes();
-      if (bytes.length > 1024 * 1024) {
+      if (bytes.length > 5 * 1024 * 1024) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('视频太大，请选择小于1MB的视频')),
+            const SnackBar(content: Text('视频太大，请选择小于5MB的视频')),
           );
         }
         return;
@@ -586,11 +586,11 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
       final file = File(result.files.first.path!);
       final bytes = await file.readAsBytes();
 
-      // 检查文件大小（限制1MB）
-      if (bytes.length > 1024 * 1024) {
+      // 检查文件大小（限制5MB，从1MB提高）
+      if (bytes.length > 5 * 1024 * 1024) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('文件太大，请选择小于1MB的文件')),
+            const SnackBar(content: Text('文件太大，请选择小于5MB的文件')),
           );
         }
         return;
