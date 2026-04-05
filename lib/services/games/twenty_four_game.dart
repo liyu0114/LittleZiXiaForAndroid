@@ -102,6 +102,9 @@ class TwentyFourGameService {
   Timer? _gameTimer;
   int _timeLeft = 60;
   
+  // 网络优化配置
+  int _syncIntervalSeconds = 2;  // 同步间隔（从1秒改为2秒）
+  
   // 流控制器
   final _stateController = StreamController<Map<String, dynamic>>.broadcast();
   final _timerController = StreamController<int>.broadcast();

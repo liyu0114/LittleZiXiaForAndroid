@@ -29,6 +29,7 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
   // 网络状态
   bool _isHost = false;
   bool _isConnected = false;
+  int _lastBroadcastTime = 0;  // 上次广播时间（用于节流）
   
   // 本地玩家信息
   String? _localPlayerId;
@@ -98,8 +99,13 @@ class _NetworkGameScreenState extends State<NetworkGameScreen> {
         setState(() {
           _gameState['timeLeft'] = time;
         });
-        // 每秒广播状态给客户端
-        _broadcastGameState();
+        
+        // 节流：每2秒广播一次状态（而不是每秒）
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (now - _lastBroadcastTime >= 2000) {
+          _broadcastGameState();
+          _lastBroadcastTime = now;
+        }
       }
     });
     
