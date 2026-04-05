@@ -4,7 +4,7 @@
 
 import 'package:flutter/material.dart';
 import '../services/games/twenty_four_game.dart';
-import 'network_game_screen.dart';
+import '../services/games/twenty_four_score.dart';
 import 'network_game_screen.dart';
 
 class TwentyFourGameScreen extends StatefulWidget {
@@ -16,6 +16,7 @@ class TwentyFourGameScreen extends StatefulWidget {
 
 class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
   final TwentyFourGameService _gameService = TwentyFourGameService();
+  final TwentyFourScoreService _scoreService = TwentyFourScoreService();
   
   GameRoom? _room;
   List<int> _numbers = [];
@@ -33,7 +34,10 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
     _initGame();
   }
   
-  void _initGame() {
+  void _initGame() async {
+    // 初始化成绩服务
+    await _scoreService.initialize();
+    
     _gameService.initPlayer(
       playerId: 'player_${DateTime.now().millisecondsSinceEpoch}',
       playerName: '玩家',
@@ -44,13 +48,29 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
     _gameService.rushTimeSeconds = _rushTime;
     
     // 监听状态
-    _gameService.stateStream.listen((state) {
+    _gameService.stateStream.listen((state) async {
       if (mounted) {
         setState(() {
           _room = state['room'];
           _numbers = state['numbers'] ?? [];
           _timeLeft = state['timeLeft'] ?? 60;
         });
+        
+        // 游戏结束时记录成绩
+        if (_room?.state == GameState.finished && _room?.winnerId != null) {
+          final winner = _room!.players.firstWhere(
+            (p) => p.id == _room!.winnerId,
+            orElse: () => _room!.players.first,
+          );
+          
+          // 记录游戏结果
+          await _scoreService.recordGame(
+            playerId: winner.id,
+            playerName: winner.name,
+            isWin: true,
+            answer: _room!.winnerAnswer,
+          );
+        }
       }
     });
     
@@ -276,12 +296,100 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
     );
   }
 
+  void _showScores() {
+    final records = _scoreService.getAllRecords();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.emoji_events, color: Colors.amber),
+            SizedBox(width: 8),
+            Text('游戏排行'),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: records.isEmpty
+              ? const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.sports_score, size: 48, color: Colors.grey),
+                      SizedBox(height: 16),
+                      Text('暂无游戏记录', style: TextStyle(color: Colors.grey)),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: records.length,
+                  itemBuilder: (context, index) {
+                    final record = records[index];
+                    return Card(
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: index == 0
+                              ? Colors.amber
+                              : index == 1
+                                  ? Colors.grey.shade400
+                                  : index == 2
+                                      ? Colors.brown.shade300
+                                      : Colors.blue.shade100,
+                          child: Text(
+                            '${index + 1}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: index < 3 ? Colors.white : Colors.black,
+                            ),
+                          ),
+                        ),
+                        title: Text(record.playerName),
+                        subtitle: Text(
+                          '胜率: ${(record.winRate * 100).toStringAsFixed(1)}%',
+                        ),
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              '${record.wins}胜 ${record.losses}负',
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            Text(
+                              '总分: ${record.totalGames}',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('24点游戏'),
         actions: [
+          // 成绩按钮（始终显示）
+          IconButton(
+            icon: const Icon(Icons.emoji_events),
+            onPressed: _showScores,
+            tooltip: '游戏排行',
+          ),
           if (_room != null) ...[
             IconButton(
               icon: const Icon(Icons.settings),
