@@ -17,7 +17,8 @@ import 'gateway_dashboard.dart';
 import 'debug_screen.dart';
 import 'sensor_data_screen.dart';
 import 'group_chat_entry_screen.dart';  // 新增群聊入口
-import 'twenty_four_game_screen.dart';  // 新增24点游戏屏幕
+import 'twenty_four_game_entry_screen.dart';  // 新增24点游戏入口
+import 'network_game_screen.dart';  // 联网24点游戏
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -182,7 +183,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             controller: _tabController,
             children: [
               _buildChatTab(),
-              const TwentyFourGameScreen(),  // 移到对话后面
+              const TwentyFourGameEntryScreen(),  // 使用新的入口界面
               const LLMConfigScreen(),
               const CapabilityScreen(),
               const SkillsScreenV2(),
