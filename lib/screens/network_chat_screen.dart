@@ -6,8 +6,11 @@
 // - 机器人：主机可以添加 AI 机器人参与对话
 
 import 'dart:async';
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
 import '../services/chat/group_chat_service.dart';
 import '../services/chat/p2p_messaging.dart';
 import '../services/chat/chat_bot_service.dart';
@@ -48,6 +51,9 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
   // 消息
   List<Map<String, dynamic>> _messages = [];
   final _messageController = TextEditingController();
+
+  // 图片选择器
+  final _imagePicker = ImagePicker();
 
   @override
   void initState() {
@@ -433,6 +439,72 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
     }
     
     _messageController.clear();
+  }
+
+  /// 发送图片
+  void _sendImage() async {
+    try {
+      final XFile? image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 80,
+      );
+
+      if (image == null) return;
+
+      // 检查文件大小（限制500KB）
+      final file = File(image.path);
+      final bytes = await file.readAsBytes();
+      if (bytes.length > 500 * 1024) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('图片太大，请选择小于500KB的图片')),
+          );
+        }
+        return;
+      }
+
+      // 转为base64
+      final base64Str = base64Encode(bytes);
+
+      // 发送图片消息
+      final message = P2PMessage(
+        type: P2PMessageType.fileTransfer,
+        fromId: _localUserId!,
+        fromName: _localUserName,
+        payload: {
+          'action': 'image',
+          'base64': base64Str,
+          'fileName': image.name,
+        },
+      );
+
+      setState(() {
+        _messages.add({
+          'userId': _localUserId,
+          'userName': _localUserName,
+          'imageBase64': base64Str,
+          'time': DateTime.now(),
+        });
+      });
+
+      if (_isHost) {
+        _networkService?.broadcast(message);
+      } else {
+        final connections = _networkService?.connections ?? [];
+        if (connections.isNotEmpty) {
+          _networkService?.sendTo(connections.first.deviceId, message);
+        }
+      }
+    } catch (e) {
+      debugPrint('[NetworkChat] 发送图片失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('发送图片失败: $e')),
+        );
+      }
+    }
   }
 
   void _showJoinDialog() {
@@ -822,7 +894,27 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                        Text(msg['content']),
+                        // 显示图片
+                        if (msg['imageBase64'] != null) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(
+                                maxWidth: 200,
+                                maxHeight: 200,
+                              ),
+                              child: Image.memory(
+                                base64Decode(msg['imageBase64']),
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                          if (msg['content'] != null && msg['content'].toString().isNotEmpty)
+                            const SizedBox(height: 8),
+                        ],
+                        // 显示文字
+                        if (msg['content'] != null && msg['content'].toString().isNotEmpty)
+                          Text(msg['content']),
                       ],
                     ),
                   ),
@@ -840,6 +932,12 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
             ),
             child: Row(
               children: [
+                // 图片按钮
+                IconButton(
+                  onPressed: _sendImage,
+                  icon: const Icon(Icons.image),
+                  color: Colors.grey.shade600,
+                ),
                 Expanded(
                   child: TextField(
                     controller: _messageController,

@@ -15,6 +15,7 @@ enum P2PMessageType {
   userTyping,    // 用户正在输入
   syncRequest,   // 同步请求
   syncResponse,  // 同步响应
+  fileTransfer,  // 文件传输（新增）
 }
 
 /// P2P 消息
