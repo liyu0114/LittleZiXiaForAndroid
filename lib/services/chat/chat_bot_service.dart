@@ -222,19 +222,19 @@ class ChatBotService extends ChangeNotifier {
       }
     }
 
-    // 包含问题关键词（中等优先级）
+    // 包含问题关键词（中等优先级，提高到 80%）
     final questionKeywords = ['吗', '呢', '？', '?', '怎么', '什么', '为什么', '如何', '谁', '哪', '能否', '可以'];
     for (final keyword in questionKeywords) {
       if (message.contains(keyword)) {
-        // 问题有 60% 概率回复
-        final shouldReplyQuestion = _random.nextDouble() < 0.6;
+        // 问题有 80% 概率回复（提高到 80%）
+        final shouldReplyQuestion = _random.nextDouble() < 0.8;
         debugPrint('[ChatBotService] 问题关键词: $keyword, 是否回复: $shouldReplyQuestion');
         return shouldReplyQuestion;
       }
     }
 
-    // 其他情况，只有 10% 概率随机回复
-    final shouldReplyRandom = _random.nextDouble() < 0.1;
+    // 其他情况，提高到 20% 概率随机回复
+    final shouldReplyRandom = _random.nextDouble() < 0.2;
     debugPrint('[ChatBotService] 随机回复概率: $shouldReplyRandom');
     return shouldReplyRandom;
   }
@@ -370,15 +370,34 @@ class ChatBotService extends ChangeNotifier {
 
   /// 通用助手回复
   String _generateAssistantReply(String message, String senderName) {
+    // 1. 分析消息类型和意图
+    final messageLower = message.toLowerCase();
+
+    // 2. 基于消息内容生成特定回复
     if (message.contains('?') || message.contains('？')) {
-      final questionReplies = [
-        '这个问题很有意思，让我想想...',
-        '嗯，我觉得这是个好问题！',
-        '关于这个，我也在思考中~',
-        '你说得对，确实值得讨论！',
-        '让我看看能不能帮到你~',
-      ];
-      return questionReplies[_random.nextInt(questionReplies.length)];
+      // 问题类型 - 根据问题内容生成回复
+      if (message.contains('什么') || message.contains('是什么')) {
+        return '关于这个问题，让我为你解释一下。${_getContextualResponse(message)}';
+      } else if (message.contains('怎么') || message.contains('如何')) {
+        return '这个问题很好！${_getContextualResponse(message)}';
+      } else if (message.contains('为什么')) {
+        return '这是一个值得深思的问题。${_getContextualResponse(message)}';
+      } else if (message.contains('吗')) {
+        // 是非问题
+        final yesNoReplies = [
+          '根据我的理解，应该是的~',
+          '嗯，这个问题要看具体情况呢~',
+          '让我想想...我觉得可以这样理解~',
+        ];
+        return yesNoReplies[_random.nextInt(yesNoReplies.length)];
+      } else {
+        final questionReplies = [
+          '这个问题很有意思，让我想想...',
+          '嗯，我觉得这是个好问题！',
+          '关于这个，我也在思考中~',
+        ];
+        return questionReplies[_random.nextInt(questionReplies.length)];
+      }
     }
 
     if (message.contains('哈哈') || message.contains('😂') || message.contains('好笑')) {
@@ -394,6 +413,18 @@ class ChatBotService extends ChangeNotifier {
       return sorryReplies[_random.nextInt(sorryReplies.length)];
     }
 
+    // 3. 根据对话历史生成上下文相关回复
+    if (_conversationHistory.length > 2) {
+      final lastMsg = _conversationHistory[_conversationHistory.length - 1];
+      final lastContent = lastMsg['content'] as String;
+
+      // 如果上一条消息是问题，尝试延续对话
+      if (lastContent.contains('?') || lastContent.contains('？')) {
+        return '接着刚才的话题，${_getContextualResponse(message)}';
+      }
+    }
+
+    // 4. 默认回复
     final replies = [
       '嗯嗯，有意思！',
       '这个观点很棒！',
@@ -402,6 +433,20 @@ class ChatBotService extends ChangeNotifier {
       '说得很好！',
     ];
     return replies[_random.nextInt(replies.length)];
+  }
+
+  /// 获取上下文相关的回复
+  String _getContextualResponse(String message) {
+    // 基于消息关键词生成相关回复
+    if (message.contains('天气')) {
+      return '如果你想了解天气，可以问我"北京天气怎么样"~';
+    } else if (message.contains('翻译')) {
+      return '如果需要翻译，可以说"翻译成英文：你好"';
+    } else if (message.contains('笑话')) {
+      return '想听笑话？没问题，问我"讲个笑话"~';
+    } else {
+      return '我在这里陪你聊天，有什么都可以问我~';
+    }
   }
 
   /// 文档专家回复
