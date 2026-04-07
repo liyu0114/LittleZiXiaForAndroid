@@ -374,6 +374,22 @@ class ChatBotService extends ChangeNotifier {
     final messageLower = message.toLowerCase();
 
     // 2. 基于消息内容生成特定回复
+    
+    // 能力询问（你会...吗？）
+    if (message.contains('会') && (message.contains('吗') || message.contains('?') || message.contains('？'))) {
+      if (message.contains('开发') || message.contains('编程') || message.contains('写代码')) {
+        return '是的，我会编程！我可以帮你写代码、改bug、优化性能，有什么编程方面的问题都可以问我~';
+      } else if (message.contains('翻译')) {
+        return '当然！我会中英文互译，你可以直接告诉我要翻译的内容~';
+      } else if (message.contains('天气')) {
+        return '会的！我可以查询任何城市的天气，你只需要告诉我城市名~';
+      } else if (message.contains('聊天') || message.contains('对话')) {
+        return '当然会！我随时可以陪你聊天，有什么想说的都可以告诉我~';
+      } else {
+        return '嗯，这个要看具体情况了。你具体想问我什么呢？';
+      }
+    }
+
     if (message.contains('?') || message.contains('？')) {
       // 问题类型 - 根据问题内容生成回复
       if (message.contains('什么') || message.contains('是什么')) {
@@ -383,13 +399,23 @@ class ChatBotService extends ChangeNotifier {
       } else if (message.contains('为什么')) {
         return '这是一个值得深思的问题。${_getContextualResponse(message)}';
       } else if (message.contains('吗')) {
-        // 是非问题
-        final yesNoReplies = [
-          '根据我的理解，应该是的~',
-          '嗯，这个问题要看具体情况呢~',
-          '让我想想...我觉得可以这样理解~',
-        ];
-        return yesNoReplies[_random.nextInt(yesNoReplies.length)];
+        // 是非问题 - 尝试给出明确答案
+        if (message.contains('能') || message.contains('可以') || message.contains('会')) {
+          final positiveReplies = [
+            '是的，可以的~',
+            '没问题，我能做到~',
+            '当然可以！',
+            '嗯，这个我可以帮你~',
+          ];
+          return positiveReplies[_random.nextInt(positiveReplies.length)];
+        } else {
+          final yesNoReplies = [
+            '根据我的理解，应该是的~',
+            '嗯，这个问题要看具体情况呢~',
+            '让我想想...我觉得可以这样理解~',
+          ];
+          return yesNoReplies[_random.nextInt(yesNoReplies.length)];
+        }
       } else {
         final questionReplies = [
           '这个问题很有意思，让我想想...',
@@ -404,11 +430,11 @@ class ChatBotService extends ChangeNotifier {
       return '哈哈，看起来你很开心呀~ 有什么有趣的事情吗？';
     }
 
-    if (message.contains('不对') || message.contains('错了') || message.contains('傻')) {
+    if (message.contains('不对') || message.contains('错了') || message.contains('傻') || message.contains('答非所问')) {
       final sorryReplies = [
-        '抱歉抱歉，我刚才理解错了~',
-        '哎呀，我的错，让我重新想想...',
-        '不好意思，我会努力的！',
+        '抱歉抱歉，我刚才理解错了~ 让我重新回答你的问题。',
+        '哎呀，我的错！你的问题是关于什么的呢？',
+        '不好意思，我会注意的！请再问我一次好吗？',
       ];
       return sorryReplies[_random.nextInt(sorryReplies.length)];
     }
@@ -444,6 +470,8 @@ class ChatBotService extends ChangeNotifier {
       return '如果需要翻译，可以说"翻译成英文：你好"';
     } else if (message.contains('笑话')) {
       return '想听笑话？没问题，问我"讲个笑话"~';
+    } else if (message.contains('开发') || message.contains('编程')) {
+      return '关于编程方面，我可以帮你写代码、改bug、优化性能~';
     } else {
       return '我在这里陪你聊天，有什么都可以问我~';
     }
