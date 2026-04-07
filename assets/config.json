@@ -1,5 +1,5 @@
 {
-  "gateway_url": "http://localhost:3000",
+  "gateway_url": "http://100.80.206.8:18789",
   "api_version": "v1",
   "websocket_path": "/ws",
   "timeout_seconds": 30,

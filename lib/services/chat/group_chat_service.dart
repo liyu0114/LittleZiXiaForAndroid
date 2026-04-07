@@ -1,18 +1,33 @@
-// 群聊服务
+// 群聊服务（协议 v1.0 - 协同改造）
 //
 // 实现多个小紫霞机器人 + 用户群聊
+// 协议版本: v1.0 (2026-04-06)
+// 基于: LittleZiXia_Android_CollabAction_v0.5.0+20260406
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:logger/logger.dart';
+import 'package:path_provider/path_provider.dart';
 import 'p2p_messaging.dart';
 import '../llm/llm_base.dart';
 import '../llm/llm_factory.dart';
+
+/// 消息内容类型（扩展）
+enum ContentType {
+  text,      // 文本
+  image,     // 图片
+  file,      // 文件
+  voice,     // 语音
+  video,     // 视频
+  location, // 位置
+}
 
 /// 群聊房间
 class ChatRoom {
   final String id;
   final String name;
-  final List<String> members; // 用户ID列表
+  final List<String> members;
   final DateTime createdAt;
   final String? creatorId;
 
@@ -45,24 +60,42 @@ class ChatRoom {
   };
 }
 
-/// 群聊消息
+/// 群聊消息（扩展）
 class GroupChatMessage {
   final String id;
   final String roomId;
   final String senderId;
   final String senderName;
-  final String content;
+  final ContentType contentType;  // 新增
+  final dynamic content;  // 支持多种类型
   final DateTime timestamp;
-  final bool isFromBot; // 是否来自机器人
+  final bool isFromBot;
+  
+  // 文件相关（新增）
+  final String? fileName;
+  final int? fileSize;
+  final String? mimeType;
+  
+  // 语音/视频相关（新增）
+  final int? duration;  // 秒
+  
+  // 缩略图（新增）
+  final String? thumbnail;
 
   GroupChatMessage({
     required this.id,
     required this.roomId,
     required this.senderId,
     required this.senderName,
+    required this.contentType,
     required this.content,
     required this.timestamp,
     this.isFromBot = false,
+    this.fileName,
+    this.fileSize,
+    this.mimeType,
+    this.duration,
+    this.thumbnail,
   });
 
   factory GroupChatMessage.fromJson(Map<String, dynamic> json) {
@@ -71,23 +104,64 @@ class GroupChatMessage {
       roomId: json['roomId'] ?? '',
       senderId: json['senderId'] ?? '',
       senderName: json['senderName'] ?? '匿名',
+      contentType: ContentType.values.firstWhere(
+        (e) => e.name == json['contentType'],
+        orElse: () => ContentType.text,
+      ),
       content: json['content'] ?? '',
       timestamp: json['timestamp'] != null 
           ? DateTime.parse(json['timestamp']) 
           : DateTime.now(),
       isFromBot: json['isFromBot'] ?? false,
+      fileName: json['fileName'] as String?,
+      fileSize: json['fileSize'] as int?,
+      mimeType: json['mimeType'] as String?,
+      duration: json['duration'] as int?,
+      thumbnail: json['thumbnail'] as String?,
     );
   }
 
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'roomId': roomId,
-    'senderId': senderId,
-    'senderName': senderName,
-    'content': content,
-    'timestamp': timestamp.toIso8601String(),
-    'isFromBot': isFromBot,
-  };
+  Map<String, dynamic> toJson() {
+    final json = {
+      'id': id,
+      'roomId': roomId,
+      'senderId': senderId,
+      'senderName': senderName,
+      'contentType': contentType.name,
+      'content': content,
+      'timestamp': timestamp.toIso8601String(),
+      'isFromBot': isFromBot,
+      if (fileName != null) 'fileName': fileName,
+      if (fileSize != null) 'fileSize': fileSize,
+      if (mimeType != null) 'mimeType': mimeType,
+      if (duration != null) 'duration': duration,
+      if (thumbnail != null) 'thumbnail': thumbnail,
+    };
+    return json;
+  }
+  
+  /// 是否是多媒体消息
+  bool get isMultimedia => contentType != ContentType.text;
+  
+  /// 获取显示文本（用于 UI）
+  String get displayText {
+    switch (contentType) {
+      case ContentType.text:
+        return content as String;
+      case ContentType.image:
+        return '[图片]';
+      case ContentType.file:
+        return '[文件] $fileName';
+      case ContentType.voice:
+        return '[语音] ${duration}秒';
+      case ContentType.video:
+        return '[视频] ${duration}秒';
+      case ContentType.location:
+        return '[位置] $content';
+      default:
+        return '[未知消息]';
+    }
+  }
 }
 
 /// 群聊服务
@@ -115,6 +189,9 @@ class GroupChatService {
   String _botSystemPrompt = '你是一个友好的小紫霞机器人，在群聊中与人交流。回复要简洁有趣。';
   bool _botAutoReply = true;
   
+  // 文件存储路径（新增）
+  String? _fileStoragePath;
+  
   // 流控制器
   final _messageController = StreamController<GroupChatMessage>.broadcast();
   final _roomController = StreamController<ChatRoom>.broadcast();
@@ -141,11 +218,13 @@ class GroupChatService {
     bool isBot = false,
     int p2pPort = 18790,
     LLMProvider? llmProvider,
+    String? fileStoragePath,  // 新增
   }) async {
     _currentUserId = userId;
     _currentUserName = userName;
     _isBot = isBot;
     _llmProvider = llmProvider;
+    _fileStoragePath = fileStoragePath ?? (await _getDefaultStoragePath());
     
     _logger.i('群聊服务初始化: $userName (${isBot ? '机器人' : '用户'})');
     
@@ -159,6 +238,12 @@ class GroupChatService {
     
     // 监听 P2P 消息
     _p2pService!.messageStream.listen(_handleP2PMessage);
+  }
+  
+  /// 获取默认存储路径
+  Future<String> _getDefaultStoragePath() async {
+    final directory = await getApplicationDocumentsDirectory();
+    return '${directory.path}/chat_files';
   }
   
   /// 设置机器人配置
@@ -181,7 +266,7 @@ class GroupChatService {
     final room = ChatRoom(
       id: roomId,
       name: name,
-      members: members.toSet().toList(), // 去重
+      members: members.toSet().toList(),
       createdAt: DateTime.now(),
       creatorId: _currentUserId,
     );
@@ -226,8 +311,97 @@ class GroupChatService {
     return true;
   }
   
-  /// 发送消息
-  void sendMessage(String roomId, String content) {
+  /// 发送文本消息
+  void sendTextMessage(String roomId, String text) {
+    _sendMessage(
+      roomId: roomId,
+      contentType: ContentType.text,
+      content: text,
+    );
+  }
+  
+  /// 发送图片消息（新增）
+  void sendImageMessage(String roomId, String imageBase64, {String? caption}) {
+    _sendMessage(
+      roomId: roomId,
+      contentType: ContentType.image,
+      content: imageBase64,
+      metadata: caption != null ? {'caption': caption} : null,
+    );
+  }
+  
+  /// 发送文件消息（新增）
+  Future<void> sendFileMessage(String roomId, File file) async {
+    try {
+      // 读取文件
+      final bytes = await file.readAsBytes();
+      final base64 = base64Encode(bytes);
+      final fileName = file.path.split('/').last;
+      final fileSize = bytes.length;
+      
+      _sendMessage(
+        roomId: roomId,
+        contentType: ContentType.file,
+        content: base64,
+        fileName: fileName,
+        fileSize: fileSize,
+        mimeType: _getMimeType(fileName),
+      );
+      
+      _logger.i('发送文件: $fileName ($fileSize bytes)');
+    } catch (e) {
+      _logger.e('发送文件失败: $e');
+    }
+  }
+  
+  /// 发送语音消息（新增）
+  void sendVoiceMessage(String roomId, String voiceBase64, int durationSeconds) {
+    _sendMessage(
+      roomId: roomId,
+      contentType: ContentType.voice,
+      content: voiceBase64,
+      duration: durationSeconds,
+    );
+  }
+  
+  /// 发送视频消息（新增）
+  void sendVideoMessage(String roomId, String videoBase64, int durationSeconds, {String? thumbnail}) {
+    _sendMessage(
+      roomId: roomId,
+      contentType: ContentType.video,
+      content: videoBase64,
+      duration: durationSeconds,
+      thumbnail: thumbnail,
+    );
+  }
+  
+  /// 发送位置消息（新增）
+  void sendLocationMessage(String roomId, double latitude, double longitude, {String? address}) {
+    final locationData = jsonEncode({
+      'latitude': latitude,
+      'longitude': longitude,
+      'address': address,
+    });
+    
+    _sendMessage(
+      roomId: roomId,
+      contentType: ContentType.location,
+      content: locationData,
+    );
+  }
+  
+  /// 内部发送消息
+  void _sendMessage({
+    required String roomId,
+    required ContentType contentType,
+    required dynamic content,
+    String? fileName,
+    int? fileSize,
+    String? mimeType,
+    int? duration,
+    String? thumbnail,
+    Map<String, dynamic>? metadata,
+  }) {
     if (_currentUserId == null) {
       _logger.e('未初始化用户信息');
       return;
@@ -238,99 +412,82 @@ class GroupChatService {
       roomId: roomId,
       senderId: _currentUserId!,
       senderName: _currentUserName ?? '匿名',
+      contentType: contentType,
       content: content,
       timestamp: DateTime.now(),
       isFromBot: _isBot,
+      fileName: fileName,
+      fileSize: fileSize,
+      mimeType: mimeType,
+      duration: duration,
+      thumbnail: thumbnail,
     );
     
     _messages[roomId]?.add(message);
     _messageController.add(message);
     
-    _logger.i('发送消息: [$roomId] ${_currentUserName}: $content');
+    _logger.i('发送消息: [$roomId] ${_currentUserName}: ${message.displayText}');
     
-    // 通过 P2P 发送到其他设备
-    _p2pService?.sendChatMessage(
-      roomId: roomId,
-      content: content,
-    );
-  }
-  
-  /// 接收消息（从外部，如 Gateway）
-  void receiveMessage(Map<String, dynamic> messageData) {
-    final message = GroupChatMessage.fromJson(messageData);
+    // 通过 P2P 发送
+    if (_p2pService != null) {
+      _p2pService!.sendChatMessage(
+        roomId: roomId,
+        content: content is String ? content : jsonEncode(content),
+        contentType: contentType.name,
+        metadata: {
+          if (fileName != null) 'fileName': fileName,
+          if (fileSize != null) 'fileSize': fileSize,
+          if (mimeType != null) 'mimeType': mimeType,
+          if (duration != null) 'duration': duration,
+          if (thumbnail != null) 'thumbnail': thumbnail,
+          ...?metadata ?? {},
+        },
+      );
+    }
     
-    _messages[message.roomId]?.add(message);
-    _messageController.add(message);
-    
-    _logger.i('接收消息: [${message.roomId}] ${message.senderName}: ${message.content}');
-  }
-  
-  /// 获取房间消息历史
-  List<GroupChatMessage> getRoomMessages(String roomId) {
-    return _messages[roomId] ?? [];
-  }
-  
-  /// 获取房间信息
-  ChatRoom? getRoom(String roomId) => _rooms[roomId];
-  
-  /// 清理资源
-  void dispose() {
-    _messageController.close();
-    _roomController.close();
-    _p2pService?.dispose();
+    // 触发机器人回复
+    if (!_isBot && _botAutoReply) {
+      _generateBotReply(roomId, content is String ? content : message.displayText);
+    }
   }
   
   /// 处理 P2P 消息
   void _handleP2PMessage(P2PMessage p2pMessage) {
-    switch (p2pMessage.type) {
-      case P2PMessageType.chatMessage:
-        _handleChatMessage(p2pMessage);
-        break;
-      case P2PMessageType.joinRoom:
-        _handleJoinRoom(p2pMessage);
-        break;
-      case P2PMessageType.syncRequest:
-        _handleSyncRequest(p2pMessage);
-        break;
-      default:
-        _logger.d('未处理的 P2P 消息类型: ${p2pMessage.type}');
-    }
-  }
-  
-  /// 处理聊天消息
-  void _handleChatMessage(P2PMessage p2pMessage) {
+    if (p2pMessage.type != P2PMessageType.chatMessage) return;
+    
     final roomId = p2pMessage.payload['roomId'] as String?;
-    final content = p2pMessage.payload['content'] as String?;
+    if (roomId == null) return;
     
-    if (roomId == null || content == null) return;
+    final contentType = ContentType.values.firstWhere(
+      (e) => e.name == p2pMessage.payload['contentType'],
+      orElse: () => ContentType.text,
+    );
     
-    // 创建消息
     final message = GroupChatMessage(
       id: 'msg_${DateTime.now().millisecondsSinceEpoch}_${p2pMessage.fromId}',
       roomId: roomId,
       senderId: p2pMessage.fromId,
       senderName: p2pMessage.fromName,
-      content: content,
+      contentType: contentType,
+      content: p2pMessage.payload['content'],
       timestamp: p2pMessage.timestamp,
-      isFromBot: p2pMessage.payload['isFromBot'] ?? false,
+      isFromBot: false,
+      fileName: p2pMessage.payload['fileName'] as String?,
+      fileSize: p2pMessage.payload['fileSize'] as int?,
+      mimeType: p2pMessage.payload['mimeType'] as String?,
+      duration: p2pMessage.payload['duration'] as int?,
+      thumbnail: p2pMessage.payload['thumbnail'] as String?,
     );
     
-    // 添加到消息历史
     _messages[roomId]?.add(message);
     _messageController.add(message);
     
-    _logger.i('接收 P2P 消息: [$roomId] ${p2pMessage.fromName}: $content');
+    _logger.i('接收 P2P 消息: ${message.displayText}');
     
-    // 如果是机器人且开启了自动回复
-    if (_isBot && _botAutoReply && p2pMessage.fromId != _currentUserId) {
-      _generateBotReply(roomId, content);
+    // 触发机器人回复
+    if (!_isBot && _botAutoReply) {
+      _generateBotReply(roomId, message.displayText);
     }
-  }
-  
-  /// 处理加入房间
-  void _handleJoinRoom(P2PMessage p2pMessage) {
-    // 远程设备加入房间的逻辑
-    _logger.i('远程设备加入: ${p2pMessage.fromName}');
   }
   
   /// 处理同步请求
@@ -338,25 +495,36 @@ class GroupChatService {
     final roomId = p2pMessage.payload['roomId'] as String?;
     if (roomId == null) return;
     
-    // 发送消息历史
     final messages = _messages[roomId] ?? [];
-    final response = P2PMessage(
-      type: P2PMessageType.syncResponse,
-      fromId: _currentUserId!,
-      fromName: _currentUserName!,
-      payload: {
-        'roomId': roomId,
-        'messages': messages.map((m) => m.toJson()).toList(),
-      },
-    );
     
-    _p2pService?.sendTo(p2pMessage.fromId, response);
+    // 发送同步响应
+    _p2pService?.sendChatMessage(
+      roomId: roomId,
+      content: jsonEncode(messages.map((m) => m.toJson()).toList()),
+      contentType: 'sync',
+    );
+  }
+  
+  /// 处理同步响应
+  void _handleSyncResponse(P2PMessage p2pMessage) {
+    final roomId = p2pMessage.payload['roomId'] as String?;
+    if (roomId == null) return;
+    
+    try {
+      final messagesJson = jsonDecode(p2pMessage.payload['content']) as List;
+      final messages = messagesJson.map((json) => GroupChatMessage.fromJson(json)).toList();
+      
+      _messages[roomId] = messages;
+      _logger.i('同步消息成功: ${messages.length}条');
+    } catch (e) {
+      _logger.e('同步消息失败: $e');
+    }
   }
   
   /// 生成机器人回复
   Future<void> _generateBotReply(String roomId, String userMessage) async {
     if (_llmProvider == null) {
-      _logger.w('LLM 服务未初始化，无法生成机器人回复');
+      _logger.w('LLM 服务未初始化');
       return;
     }
     
@@ -367,26 +535,86 @@ class GroupChatService {
           .map((m) => '${m.senderName}: ${m.content}')
           .join('\n');
       
-      // 调用 LLM 生成回复
-      final messages = [
-        ChatMessage.system(_botSystemPrompt),
-        ChatMessage.user('群聊记录：\n$recentMessages\n\n请根据上下文回复最后一条消息：$userMessage'),
-      ];
+      // 构建提示
+      final prompt = '''
+$_botSystemPrompt
+
+群聊记录:
+$recentMessages
+
+最后一条消息: $userMessage
+
+请回复最后一条消息:
+''';
       
-      final response = await _llmProvider!.chat(messages);
+      // 调用 LLM
+      final response = await _llmProvider!.chat([
+        ChatMessage.system(_botSystemPrompt),
+        ChatMessage.user('群聊记录:\n$recentMessages\n\n请回复最后一条消息: $userMessage'),
+      ]);
+      
       final reply = response.content;
       
       // 发送回复
       if (reply != null && reply.isNotEmpty) {
-        // 延迟一下，模拟思考
         await Future.delayed(Duration(milliseconds: 500 + reply.length * 20));
-        
-        sendMessage(roomId, reply);
+        sendTextMessage(roomId, reply);
         _logger.i('机器人自动回复: $reply');
       }
     } catch (e) {
       _logger.e('生成机器人回复失败: $e');
     }
+  }
+  
+  /// 获取 MIME 类型
+  String _getMimeType(String fileName) {
+    final extension = fileName.split('.').last.toLowerCase();
+    switch (extension) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      case 'pdf':
+        return 'application/pdf';
+      case 'txt':
+        return 'text/plain';
+      case 'mp3':
+        return 'audio/mpeg';
+      case 'mp4':
+        return 'video/mp4';
+      default:
+        return 'application/octet-stream';
+    }
+  }
+  
+  /// 保存文件（新增）
+  Future<String?> saveFile(String fileName, String base64Data) async {
+    final storagePath = _fileStoragePath;
+    if (storagePath == null) return null;
+    
+    try {
+      final directory = Directory(storagePath);
+      if (!await directory.exists()) {
+        await directory.create(recursive: true);
+      }
+      
+      final file = File('$storagePath/$fileName');
+      await file.writeAsBytes(base64Decode(base64Data));
+      
+      _logger.i('文件已保存: $fileName');
+      return file.path;
+    } catch (e) {
+      _logger.e('保存文件失败: $e');
+      return null;
+    }
+  }
+  
+  /// 获取消息历史
+  List<GroupChatMessage> getMessages(String roomId) {
+    return _messages[roomId] ?? [];
   }
   
   /// 连接到远程设备

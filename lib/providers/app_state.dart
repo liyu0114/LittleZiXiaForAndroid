@@ -7,7 +7,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logger/logger.dart';
-import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import '../services/llm/llm_base.dart';
 import '../services/llm/llm_factory.dart';
@@ -23,7 +22,6 @@ import '../services/qrcode/qrcode_service.dart';
 import '../services/voice/tts_service.dart';
 import '../services/file/file_picker_service.dart';
 import '../services/conversation/topic_manager.dart';
-import 'package:geolocator/geolocator.dart';
 import '../services/sensors/sensor_service.dart';
 import '../services/web/web_search_service.dart';
 import '../services/web/web_fetch_service.dart';
@@ -31,7 +29,6 @@ import '../services/memory/memory_service.dart';
 import '../services/vision/image_analysis_service.dart';
 import '../services/context/context_manager.dart';
 import '../widgets/task_list.dart';
-import '../services/task_executor.dart';  // 任务执行引擎
 
 /// 对话消息（UI 层使用）
 class ConversationMessage {
@@ -168,7 +165,7 @@ class AppState extends ChangeNotifier {
   final Map<String, Timer> _taskTimers = {};
 
   // 会话管理
-  final List<SessionInfo> _sessions = [];
+  final List<Map<String, dynamic>> _sessions = [];
 
   // Getters
   LLMConfig? get llmConfig => _llmConfig;
@@ -197,7 +194,7 @@ class AppState extends ChangeNotifier {
   CapabilityManager get capabilityManager => _capabilityManager;
   List<TaskInfo> get tasks => List.unmodifiable(_tasks);
   List<TaskInfo> get activeTasks => _tasks.where((t) => t.status == TaskStatus.running).toList();
-  List<SessionInfo> get sessions => List.unmodifiable(_sessions);
+  List<Map<String, dynamic>> get sessions => List.unmodifiable(_sessions);
   SkillLifecycleManager get lifecycleManager => _lifecycleManager;  // 新增
   
   /// 从对话生成 Skill（老板要求的功能）

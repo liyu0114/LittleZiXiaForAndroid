@@ -25,6 +25,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
   bool _isConnecting = false;
   RemoteConnectionState _connectionState = RemoteConnectionState.disconnected;
   GatewayInfo? _gatewayInfo;
+  String? _selectedTransport;  // 当前传输方式（rpc/rest）
 
   @override
   void initState() {
@@ -51,6 +52,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
       setState(() {
         _connectionState = connection.state;
         _gatewayInfo = connection.gatewayInfo;
+        _selectedTransport = connection.selectedTransport;
       });
       
       // 监听状态变化
@@ -58,6 +60,16 @@ class _GatewayScreenState extends State<GatewayScreen> {
         if (mounted) {
           setState(() {
             _connectionState = state;
+            _selectedTransport = connection.selectedTransport;
+          });
+        }
+      });
+      
+      // 监听连接快照变化
+      connection.snapshotStream.listen((snapshot) {
+        if (mounted) {
+          setState(() {
+            _selectedTransport = snapshot.selectedTransport;
           });
         }
       });
@@ -91,10 +103,10 @@ class _GatewayScreenState extends State<GatewayScreen> {
       
       if (success) {
         appState.setRemoteConnection(connection);
-        final info = await connection.fetchGatewayInfo();
         setState(() {
           _connectionState = RemoteConnectionState.connected;
-          _gatewayInfo = info;
+          _gatewayInfo = connection.gatewayInfo;
+          _selectedTransport = connection.selectedTransport;
         });
         _showSuccess('连接成功');
       } else {
@@ -267,18 +279,44 @@ class _GatewayScreenState extends State<GatewayScreen> {
     }
 
     return Card(
-      child: ListTile(
-        leading: Icon(statusIcon, color: statusColor, size: 32),
-        title: Text(
-          statusText,
-          style: TextStyle(
-            color: statusColor,
-            fontWeight: FontWeight.bold,
+      child: Column(
+        children: [
+          ListTile(
+            leading: Icon(statusIcon, color: statusColor, size: 32),
+            title: Text(
+              statusText,
+              style: TextStyle(
+                color: statusColor,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            subtitle: _gatewayInfo != null
+                ? Text('Gateway ${_gatewayInfo!.version} (${_gatewayInfo!.platform})')
+                : null,
           ),
-        ),
-        subtitle: _gatewayInfo != null
-            ? Text('Gateway ${_gatewayInfo!.version} (${_gatewayInfo!.platform})')
-            : null,
+          // 显示"已回退 REST"黄色提示
+          if (_connectionState == RemoteConnectionState.connected && 
+              _selectedTransport == 'rest')
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: Colors.orange.shade100,
+              child: Row(
+                children: [
+                  Icon(Icons.warning, color: Colors.orange.shade800, size: 16),
+                  const SizedBox(width: 8),
+                  Text(
+                    '已回退 REST（RPC 不可用）',
+                    style: TextStyle(
+                      color: Colors.orange.shade900,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }

@@ -3,6 +3,7 @@
 // 管理所有"手脚"能力，供 Skill 和任务执行器调用
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 /// 能力类型
 enum CapabilityType {

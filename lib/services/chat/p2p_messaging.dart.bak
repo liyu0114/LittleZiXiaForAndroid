@@ -331,28 +331,16 @@ class P2PMessagingService {
   void sendChatMessage({
     required String roomId,
     required String content,
-    String contentType = 'text',
-    Map<String, dynamic>? metadata,
     String? targetDeviceId,
   }) {
-    final payload = <String, dynamic>{
-      'roomId': roomId,
-      'content': content,
-      'contentType': contentType,
-    };
-    
-    if (metadata != null) {
-      // 转换 dynamic 为 String
-      metadata.forEach((key, value) {
-        payload[key] = value?.toString() ?? '';
-      });
-    }
-    
     final message = P2PMessage(
       type: P2PMessageType.chatMessage,
       fromId: _localDeviceId!,
       fromName: _localDeviceName!,
-      payload: payload,
+      payload: {
+        'roomId': roomId,
+        'content': content,
+      },
     );
 
     if (targetDeviceId != null) {

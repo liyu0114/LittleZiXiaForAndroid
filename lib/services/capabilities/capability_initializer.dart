@@ -117,7 +117,7 @@ class CapabilityInitializer {
         }
         
         final notificationService = NotificationService();
-        await notificationService.showNotification(
+        await notificationService.show(
           title: title,
           body: body ?? '',
         );

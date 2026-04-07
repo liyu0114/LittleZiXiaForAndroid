@@ -201,51 +201,66 @@ class ChatBotService extends ChangeNotifier {
   /// 决定是否回复
   bool shouldReply(String message, String senderId) {
     if (senderId == botId) return false;  // 不回复自己
-    
-    // 被直接提及（优先级最高）
-    if (message.contains(_config.name) || 
+
+    final lowerMessage = message.toLowerCase();
+
+    // 被直接提及（优先级最高，必须回复）
+    if (message.contains(_config.name) ||
         message.contains('小紫霞') ||
         message.contains('@${_config.name}') ||
         message.contains('@小紫霞')) {
+      debugPrint('[ChatBotService] 被直接提及，必须回复');
       return true;
     }
-    
-    // 包含技能关键词（优先级高）
-    final skillKeywords = ['天气', '翻译', '二维码', 'qrcode', 'ip', 'IP'];
+
+    // 包含技能关键词（优先级高，应该回复）
+    final skillKeywords = ['天气', '翻译', '二维码', 'qrcode', 'ip', 'IP', '笑话', '故事'];
     for (final keyword in skillKeywords) {
-      if (message.contains(keyword)) {
+      if (lowerMessage.contains(keyword.toLowerCase())) {
+        debugPrint('[ChatBotService] 技能关键词触发: $keyword');
         return true;
       }
     }
-    
+
     // 包含问题关键词（中等优先级）
-    final questionKeywords = ['吗', '呢', '？', '?', '怎么', '什么', '为什么', '如何', '谁', '哪'];
+    final questionKeywords = ['吗', '呢', '？', '?', '怎么', '什么', '为什么', '如何', '谁', '哪', '能否', '可以'];
     for (final keyword in questionKeywords) {
       if (message.contains(keyword)) {
-        // 只有 50% 概率回复问题
-        return _random.nextDouble() < 0.5;
+        // 问题有 60% 概率回复
+        final shouldReplyQuestion = _random.nextDouble() < 0.6;
+        debugPrint('[ChatBotService] 问题关键词: $keyword, 是否回复: $shouldReplyQuestion');
+        return shouldReplyQuestion;
       }
     }
-    
+
     // 其他情况，只有 10% 概率随机回复
-    return _random.nextDouble() < 0.1;
+    final shouldReplyRandom = _random.nextDouble() < 0.1;
+    debugPrint('[ChatBotService] 随机回复概率: $shouldReplyRandom');
+    return shouldReplyRandom;
   }
-  
+
   /// 生成回复
   Future<String?> generateReply(String recentMessage, String senderName) async {
-    debugPrint('[ChatBotService] 生成回复: $recentMessage');
-    
+    debugPrint('[ChatBotService] ========== 生成回复 ==========');
+    debugPrint('[ChatBotService] 发送者: $senderName');
+    debugPrint('[ChatBotService] 消息: $recentMessage');
+    debugPrint('[ChatBotService] 角色配置: ${_config.role}');
+    debugPrint('[ChatBotService] 对话历史长度: ${_conversationHistory.length}');
+
     // 1. 尝试使用技能
     if (_skillExecuteCallback != null) {
       try {
+        debugPrint('[ChatBotService] 尝试执行技能...');
         final skillResult = await _tryExecuteSkill(recentMessage);
         if (skillResult != null && skillResult.isNotEmpty) {
-          debugPrint('[ChatBotService] 技能结果: $skillResult');
+          debugPrint('[ChatBotService] ✅ 技能结果: $skillResult');
           return skillResult;
         }
       } catch (e) {
-        debugPrint('[ChatBotService] 技能执行失败: $e');
+        debugPrint('[ChatBotService] ❌ 技能执行失败: $e');
       }
+    } else {
+      debugPrint('[ChatBotService] ⚠️ 技能回调未设置');
     }
     
     // 2. 使用后备回复
@@ -323,46 +338,110 @@ class ChatBotService extends ChangeNotifier {
   
   /// 后备回复（技能不可用时）
   String _generateFallbackReply(String message, String senderName) {
-    // 根据消息内容生成更智能的回复
+    debugPrint('[ChatBotService] 使用后备回复，角色: ${_config.role}');
+
+    // 根据角色生成特定回复
+    String reply;
+
+    switch (_config.role) {
+      case BotRole.assistant:
+        reply = _generateAssistantReply(message, senderName);
+        break;
+      case BotRole.document:
+        reply = _generateDocumentReply(message, senderName);
+        break;
+      case BotRole.qa:
+        reply = _generateQAReply(message, senderName);
+        break;
+      case BotRole.translator:
+        reply = _generateTranslatorReply(message, senderName);
+        break;
+      case BotRole.coder:
+        reply = _generateCoderReply(message, senderName);
+        break;
+      case BotRole.analyst:
+        reply = _generateAnalystReply(message, senderName);
+        break;
+    }
+
+    debugPrint('[ChatBotService] 后备回复: $reply');
+    return reply;
+  }
+
+  /// 通用助手回复
+  String _generateAssistantReply(String message, String senderName) {
     if (message.contains('?') || message.contains('？')) {
-      // 问题类型
       final questionReplies = [
         '这个问题很有意思，让我想想...',
         '嗯，我觉得这是个好问题！',
         '关于这个，我也在思考中~',
         '你说得对，确实值得讨论！',
+        '让我看看能不能帮到你~',
       ];
       return questionReplies[_random.nextInt(questionReplies.length)];
     }
-    
+
     if (message.contains('哈哈') || message.contains('😂') || message.contains('好笑')) {
-      // 幽默回应
-      return '哈哈，看起来你很开心呀~';
+      return '哈哈，看起来你很开心呀~ 有什么有趣的事情吗？';
     }
-    
+
     if (message.contains('不对') || message.contains('错了') || message.contains('傻')) {
-      // 被批评时的回应
       final sorryReplies = [
         '抱歉抱歉，我刚才理解错了~',
         '哎呀，我的错，让我重新想想...',
         '不好意思，我会努力的！',
-        '嗯，你说得对，我需要改进~',
       ];
       return sorryReplies[_random.nextInt(sorryReplies.length)];
     }
-    
-    // 普通回复
+
     final replies = [
       '嗯嗯，有意思！',
       '这个观点很棒！',
       '我明白你的意思了~',
       '确实是这样呢！',
       '说得很好！',
-      '有道理！',
-      '我也这么觉得~',
     ];
-    
     return replies[_random.nextInt(replies.length)];
+  }
+
+  /// 文档专家回复
+  String _generateDocumentReply(String message, String senderName) {
+    if (message.contains('文档') || message.contains('写')) {
+      return '关于文档方面，我可以帮你：\n1. 梳理文档结构\n2. 优化表达方式\n3. 检查完整性\n需要我帮忙吗？';
+    }
+    return '作为文档专家，我建议保持文档的清晰和结构化~';
+  }
+
+  /// 质检专家回复
+  String _generateQAReply(String message, String senderName) {
+    if (message.contains('检查') || message.contains('问题')) {
+      return '让我来帮你检查一下，我关注以下几个方面：\n1. 代码质量\n2. 潜在风险\n3. 最佳实践';
+    }
+    return '质检角度：确保质量和规范是成功的关键~';
+  }
+
+  /// 翻译专家回复
+  String _generateTranslatorReply(String message, String senderName) {
+    if (message.contains('翻译') || message.contains('英文')) {
+      return '需要翻译什么内容？我可以提供准确的中英互译~';
+    }
+    return '作为翻译专家，我注重准确性和本地化表达~';
+  }
+
+  /// 编程专家回复
+  String _generateCoderReply(String message, String senderName) {
+    if (message.contains('代码') || message.contains('bug') || message.contains('Bug')) {
+      return '编程方面的问题？我可以帮你：\n1. 写代码\n2. 性能优化\n3. Bug 排查';
+    }
+    return '作为编程专家，代码质量和最佳实践是我的追求~';
+  }
+
+  /// 分析师回复
+  String _generateAnalystReply(String message, String senderName) {
+    if (message.contains('数据') || message.contains('分析')) {
+      return '数据分析方面，我可以帮你：\n1. 数据趋势分析\n2. 统计洞察\n3. 可视化建议';
+    }
+    return '从数据角度看，一切都要有理有据~';
   }
   
   /// 获取回复延迟（模拟思考时间）

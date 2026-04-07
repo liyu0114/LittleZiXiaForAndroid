@@ -56,15 +56,72 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
   // 图片选择器
   final _imagePicker = ImagePicker();
 
+  // 艾特功能
+  bool _showMentionList = false;  // 是否显示艾特列表
+  String _mentionFilter = '';  // 艾特过滤词
+
   @override
   void initState() {
     super.initState();
     _localUserId = 'user_${DateTime.now().millisecondsSinceEpoch}';
+    _messageController.addListener(_onMessageChanged);  // 监听输入变化
+  }
+
+  /// 输入框内容变化（检测 @）
+  void _onMessageChanged() {
+    final text = _messageController.text;
+    final cursorPos = _messageController.selection.baseOffset;
+
+    // 检查是否输入了 @
+    if (cursorPos > 0 && text[cursorPos - 1] == '@') {
+      setState(() {
+        _showMentionList = true;
+        _mentionFilter = '';
+      });
+    } else if (_showMentionList) {
+      // 提取 @ 后面的过滤词
+      final beforeCursor = text.substring(0, cursorPos);
+      final lastAtIndex = beforeCursor.lastIndexOf('@');
+      if (lastAtIndex != -1) {
+        final afterAt = beforeCursor.substring(lastAtIndex + 1);
+        if (!afterAt.contains(' ')) {
+          setState(() {
+            _mentionFilter = afterAt;
+          });
+        } else {
+          setState(() {
+            _showMentionList = false;
+          });
+        }
+      }
+    }
+  }
+
+  /// 插入艾特
+  void _insertMention(String name) {
+    final text = _messageController.text;
+    final cursorPos = _messageController.selection.baseOffset;
+    final beforeCursor = text.substring(0, cursorPos);
+    final lastAtIndex = beforeCursor.lastIndexOf('@');
+
+    if (lastAtIndex != -1) {
+      final newText = text.replaceRange(lastAtIndex, cursorPos, '@$name ');
+      _messageController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: lastAtIndex + name.length + 1),
+      );
+    }
+
+    setState(() {
+      _showMentionList = false;
+      _mentionFilter = '';
+    });
   }
 
   @override
   void dispose() {
-    _chatService?.dispose();
+    _messageController.removeListener(_onMessageChanged);
+    // GroupChatService 不需要 dispose
     _networkService?.dispose();
     _botService?.dispose();
     _messageController.dispose();
@@ -142,31 +199,53 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
   /// 加入房间（成为客户端）
   void _joinRoom(String hostIp) async {
     _isHost = false;
-    
+
     _networkService = P2PMessagingService();
     await _networkService!.init(
       deviceId: _localUserId!,
       deviceName: _localUserName,
-      port: 18793,  // 客户端用不同端口
+      port: 18792,  // 统一使用相同端口
     );
-    
+
     final success = await _networkService!.connectToDevice(
       deviceId: 'host_$hostIp',
       deviceName: '主机',
       ipAddress: hostIp,
       port: 18792,
     );
-    
+
     if (success) {
+      // 初始化群聊服务
+      _chatService = GroupChatService();
+      await _chatService!.initUser(
+        userId: _localUserId!,
+        userName: _localUserName,
+        isBot: false,
+      );
+
+      // 初始化机器人服务
+      if (_botEnabled) {
+        try {
+          final appState = context.read<AppState>();
+          _botService = ChatBotService(
+            config: BotConfig.defaultBot(),
+            replyProbability: 0.2,
+          );
+          debugPrint('[NetworkChat] 客户端机器人服务已初始化');
+        } catch (e) {
+          debugPrint('[NetworkChat] 客户端机器人服务初始化失败: $e');
+        }
+      }
+
       setState(() {
         _isConnected = true;
       });
-      
+
       // 监听网络消息
       _networkService!.messageStream.listen((message) {
         _handleNetworkMessage(message);
       });
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('已连接到 $hostIp')),
       );
@@ -181,21 +260,31 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
   void _handleNetworkMessage(P2PMessage message) {
     final payload = message.payload;
     final action = payload['action'];
-    
+
+    debugPrint('[NetworkChat] 收到网络消息: action=$action, from=${message.fromName}');
+
     switch (action) {
       case 'playerList':
         setState(() {
           _players = List<Map<String, dynamic>>.from(payload['players']);
         });
         break;
-        
+
       case 'chatStarted':
         setState(() {
           _chatStarted = true;
           _roomName = payload['roomName'];
         });
         break;
-        
+
+      case 'addBotRequest':
+        // 主机收到客户端的添加机器人请求
+        if (_isHost) {
+          debugPrint('[NetworkChat] 收到添加机器人请求: ${payload['requesterName']}');
+          _addBotAsHost();
+        }
+        break;
+
       case 'message':
         setState(() {
           _messages.add({
@@ -205,7 +294,7 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
             'time': DateTime.now(),
           });
         });
-        
+
         // 主机处理机器人回复
         if (_isHost && _botEnabled) {
           _handleBotReply(payload['content'], message.fromId, message.fromName);
@@ -228,38 +317,95 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
     _networkService!.broadcast(message);
   }
 
-  /// 添加机器人到群聊
+  /// 添加机器人到群聊（主机和客户端都能添加）
   void _addBot() {
-    // 只有主机可以添加机器人
-    if (!_isHost) {
+    try {
+      debugPrint('[NetworkChat] _addBot 被调用，isHost=$_isHost, botService=$_botService');
+
+      // 客户端发送添加机器人请求给主机
+      if (!_isHost) {
+        _requestAddBot();
+        return;
+      }
+
+      // 主机直接添加机器人
+      _addBotAsHost();
+    } catch (e, stack) {
+      debugPrint('[NetworkChat] 添加机器人失败: $e');
+      debugPrint('[NetworkChat] 堆栈: $stack');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('⚠️ 只有主机可以添加机器人')),
+        SnackBar(content: Text('添加机器人失败: $e')),
+      );
+    }
+  }
+
+  /// 客户端请求添加机器人
+  void _requestAddBot() {
+    if (_networkService == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⚠️ 未连接到主机')),
       );
       return;
     }
-    
+
+    final connections = _networkService!.connections;
+    if (connections.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⚠️ 未连接到主机')),
+      );
+      return;
+    }
+
+    // 发送添加机器人请求给主机
+    final message = P2PMessage(
+      type: P2PMessageType.chatMessage,
+      fromId: _localUserId!,
+      fromName: _localUserName,
+      payload: {
+        'action': 'addBotRequest',
+        'requesterName': _localUserName,
+      },
+    );
+
+    _networkService!.sendTo(connections.first.deviceId, message);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已请求主机添加机器人...')),
+    );
+  }
+
+  /// 主机添加机器人
+  void _addBotAsHost() {
     // 如果机器人服务未创建，先创建
     if (_botService == null) {
-      final appState = context.read<AppState>();
-      _botService = ChatBotService(
-        skillExecuteCallback: (skillId, params) async {
-          try {
-            return await appState.executeSkill(skillId, params);
-          } catch (e) {
-            debugPrint('[NetworkChat] 技能执行失败: $e');
-            return null;
-          }
-        },
-        config: BotConfig(
-          id: 'bot_${DateTime.now().millisecondsSinceEpoch}',
-          name: '小紫霞',
-        ),
-      );
+      try {
+        final appState = context.read<AppState>();
+        _botService = ChatBotService(
+          skillExecuteCallback: (skillId, params) async {
+            try {
+              return await appState.executeSkill(skillId, params);
+            } catch (e) {
+              debugPrint('[NetworkChat] 技能执行失败: $e');
+              return null;
+            }
+          },
+          config: BotConfig.defaultBot(),
+          replyProbability: 0.2,
+        );
+        debugPrint('[NetworkChat] 机器人服务已创建: ${_botService!.botName}');
+      } catch (e) {
+        debugPrint('[NetworkChat] 创建机器人服务失败: $e');
+        // 使用简单的机器人配置
+        _botService = ChatBotService(
+          config: BotConfig.defaultBot(),
+          replyProbability: 0.2,
+        );
+      }
     }
-    
+
     final botId = _botService!.botId;
     final botName = _botService!.botName;
-    
+
     // 检查机器人是否已在玩家列表
     final botExists = _players.any((p) => p['id'] == botId);
     if (botExists) {
@@ -268,7 +414,7 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
       );
       return;
     }
-    
+
     setState(() {
       _players.add({
         'id': botId,
@@ -277,20 +423,24 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
         'isBot': true,
       });
     });
-    
+
     // 主机广播更新
     if (_networkService != null) {
       _broadcastPlayerList();
     }
-    
-    // 机器人发送欢迎消息
-    Future.delayed(const Duration(milliseconds: 500), () {
-      _sendBotWelcomeMessage();
-    });
-    
+
+    // 如果群聊已开始，机器人发送欢迎消息
+    if (_chatStarted) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _sendBotWelcomeMessage();
+      });
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('✅ 机器人 $botName 已加入群聊')),
     );
+
+    debugPrint('[NetworkChat] 机器人添加成功: $botName ($botId)');
   }
   
   /// 开始群聊（主机）
@@ -379,19 +529,44 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
     _botService!.addToHistory(_botService!.botId, _botService!.botName, content);
   }
   
+  /// 解析消息中的 @mentions
+  List<String> _parseMentions(String content) {
+    final mentions = <String>[];
+    final regex = RegExp(r'@(\S+)');
+    final matches = regex.allMatches(content);
+
+    for (final match in matches) {
+      final name = match.group(1);
+      if (name != null) {
+        // 查找对应的玩家/机器人
+        for (final player in _players) {
+          if (player['name'] == name || player['name'].toString().contains(name)) {
+            mentions.add(player['id']);
+            break;
+          }
+        }
+      }
+    }
+
+    return mentions;
+  }
+
   /// 处理机器人回复（主机）
-  void _handleBotReply(String messageContent, String senderId, String senderName) {
+  void _handleBotReply(String messageContent, String senderId, String senderName, {List<String>? mentionIds}) {
     if (_botService == null || !_isHost || senderId == _botService!.botId) return;
-    
+
     // 添加到历史
     _botService!.addToHistory(senderId, senderName, messageContent);
-    
+
+    // 被艾特的机器人必须回复
+    final isMentioned = mentionIds?.contains(_botService!.botId) ?? false;
+
     // 决定是否回复
-    if (_botService!.shouldReply(messageContent, senderId)) {
+    if (isMentioned || _botService!.shouldReply(messageContent, senderId)) {
       // 延迟回复（模拟思考）
       Future.delayed(_botService!.getReplyDelay(), () async {
         if (!mounted) return;
-        
+
         final reply = await _botService!.generateReply(messageContent, senderName);
         if (reply != null && reply.isNotEmpty) {
           _sendBotMessage(reply);
@@ -404,7 +579,10 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
   void _sendMessage() {
     final content = _messageController.text.trim();
     if (content.isEmpty) return;
-    
+
+    // 解析艾特
+    final mentionIds = _parseMentions(content);
+
     final message = P2PMessage(
       type: P2PMessageType.chatMessage,
       fromId: _localUserId!,
@@ -412,24 +590,26 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
       payload: {
         'action': 'message',
         'content': content,
+        'mentionIds': mentionIds,  // 包含艾特列表
       },
     );
-    
+
     setState(() {
       _messages.add({
         'userId': _localUserId,
         'userName': _localUserName,
         'content': content,
         'time': DateTime.now(),
+        'mentionIds': mentionIds,
       });
     });
-    
+
     if (_isHost) {
       _networkService?.broadcast(message);
-      
+
       // 主机处理机器人回复
       if (_botEnabled) {
-        _handleBotReply(content, _localUserId!, _localUserName);
+        _handleBotReply(content, _localUserId!, _localUserName, mentionIds: mentionIds);
       }
     } else {
       // 客户端只连接到主机，发送到第一个连接
@@ -438,7 +618,7 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
         _networkService?.sendTo(connections.first.deviceId, message);
       }
     }
-    
+
     _messageController.clear();
   }
 
@@ -1111,7 +1291,76 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
               },
             ),
           ),
-          
+
+          // 艾特成员列表
+          if (_showMentionList && _players.isNotEmpty)
+            Container(
+              height: 100,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                border: Border(
+                  top: BorderSide(color: Colors.grey.shade300),
+                ),
+              ),
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                itemCount: _players.length,
+                itemBuilder: (context, index) {
+                  final player = _players[index];
+
+                  // 过滤
+                  if (_mentionFilter.isNotEmpty &&
+                      !player['name'].toString().toLowerCase().contains(_mentionFilter.toLowerCase())) {
+                    return const SizedBox.shrink();
+                  }
+
+                  // 不艾特自己
+                  if (player['id'] == _localUserId) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return GestureDetector(
+                    onTap: () => _insertMention(player['name']),
+                    child: Container(
+                      width: 90,
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: player['isBot'] == true ? Colors.purple.shade50 : Colors.blue.shade50,
+                        border: Border.all(
+                          color: player['isBot'] == true ? Colors.purple.shade200 : Colors.blue.shade200,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircleAvatar(
+                            radius: 18,
+                            backgroundColor: player['isBot'] == true ? Colors.purple : Colors.blue,
+                            child: Icon(
+                              player['isBot'] == true ? Icons.smart_toy : Icons.person,
+                              color: Colors.white,
+                              size: 18,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            player['name'],
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
           // 输入框
           Container(
             padding: const EdgeInsets.all(8),

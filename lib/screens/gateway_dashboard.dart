@@ -293,8 +293,8 @@ class _GatewayDashboardState extends State<GatewayDashboard> {
     );
   }
 
-  Widget _buildSessionItem(SessionInfo session, AppState appState) {
-    final isActive = session.status == 'active';
+  Widget _buildSessionItem(Map<String, dynamic> session, AppState appState) {
+    final isActive = session['status'] == 'active';
     
     return ListTile(
       dense: true,
@@ -303,9 +303,9 @@ class _GatewayDashboardState extends State<GatewayDashboard> {
         color: isActive ? Colors.green : Colors.grey,
         size: 16,
       ),
-      title: Text(session.name),
+      title: Text(session['name'] ?? '未知会话'),
       subtitle: Text(
-        session.id,
+        session['id'] ?? '',
         style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
       ),
       trailing: PopupMenuButton(
@@ -316,7 +316,7 @@ class _GatewayDashboardState extends State<GatewayDashboard> {
         ],
         onSelected: (value) async {
           if (value == 'restart') {
-            final success = await appState.restartSession(session.id);
+            final success = await appState.restartSession(session['id'] ?? '');
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text(success ? '会话已重启' : '重启失败')),
@@ -324,7 +324,7 @@ class _GatewayDashboardState extends State<GatewayDashboard> {
             }
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('$value: ${session.name}')),
+              SnackBar(content: Text('$value: ${session['name']}')),
             );
           }
         },
