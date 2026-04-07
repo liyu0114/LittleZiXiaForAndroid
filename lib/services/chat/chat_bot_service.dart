@@ -276,6 +276,12 @@ class ChatBotService extends ChangeNotifier {
       return null;
     }
     
+    // 1. 数学计算（优先处理）
+    final mathResult = _tryMathCalculation(message);
+    if (mathResult != null) {
+      return mathResult;
+    }
+    
     // 天气技能
     if (message.contains('天气')) {
       final locationMatch = RegExp(r'(\w+)(?:的)?天气').firstMatch(message);
@@ -331,6 +337,67 @@ class ChatBotService extends ChangeNotifier {
         '医生对病人说：你的病很严重，只能活三个字了。病人：什么字？医生：你看吧。😵',
       ];
       return jokes[_random.nextInt(jokes.length)];
+    }
+    
+    return null;
+  }
+  
+  /// 尝试数学计算
+  String? _tryMathCalculation(String message) {
+    // 清理消息
+    final cleanMessage = message.trim();
+    
+    // 匹配简单数学表达式：数字 运算符 数字
+    final mathPattern = RegExp(r'(\d+(?:\.\d+)?)\s*([+\-×÷*\/xX])\s*(\d+(?:\.\d+)?)');
+    final match = mathPattern.firstMatch(cleanMessage);
+    
+    if (match != null) {
+      try {
+        final num1 = double.parse(match.group(1)!);
+        final operator = match.group(2)!;
+        final num2 = double.parse(match.group(3)!);
+        
+        double result;
+        String operatorSymbol;
+        
+        switch (operator) {
+          case '+':
+            result = num1 + num2;
+            operatorSymbol = '+';
+            break;
+          case '-':
+            result = num1 - num2;
+            operatorSymbol = '-';
+            break;
+          case '*':
+          case 'x':
+          case 'X':
+          case '×':
+            result = num1 * num2;
+            operatorSymbol = '×';
+            break;
+          case '/':
+          case '÷':
+            if (num2 == 0) {
+              return '除数不能为 0 哦~';
+            }
+            result = num1 / num2;
+            operatorSymbol = '÷';
+            break;
+          default:
+            return null;
+        }
+        
+        // 格式化结果（整数不显示小数点）
+        final num1Str = num1 == num1.toInt() ? num1.toInt().toString() : num1.toString();
+        final num2Str = num2 == num2.toInt() ? num2.toInt().toString() : num2.toString();
+        final resultStr = result == result.toInt() ? result.toInt().toString() : result.toStringAsFixed(2);
+        
+        return '$num1Str $operatorSymbol $num2Str = $resultStr 🧮';
+      } catch (e) {
+        debugPrint('[ChatBotService] 数学计算失败: $e');
+        return null;
+      }
     }
     
     return null;
