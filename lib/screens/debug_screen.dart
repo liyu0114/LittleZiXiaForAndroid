@@ -1,12 +1,13 @@
 // 调试页面
 //
-// 提供调试命令和日志查看功能
+// 提供调试命令和日志查看功能（技能 + LLM）
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../services/skills/skill_system.dart';
+import '../services/llm_logger_service.dart';  // LLM 日志服务
 import '../config/app_version.dart';
 
 class DebugScreen extends StatefulWidget {
@@ -18,6 +19,8 @@ class DebugScreen extends StatefulWidget {
 
 class _DebugScreenState extends State<DebugScreen> {
   final List<String> _logs = [];
+  final _llmLogger = LLMLoggerService();  // LLM 日志服务
+  final _logFilterController = TextEditingController();  // 日志过滤
   
   void _addLog(String message) {
     final timestamp = DateTime.now().toString().substring(11, 19);
@@ -46,6 +49,10 @@ class _DebugScreenState extends State<DebugScreen> {
                     
                     // 技能状态详情
                     _buildSkillDetailCard(appState),
+                    const SizedBox(height: 16),
+                    
+                    // LLM 日志查看
+                    _buildLLMLogCard(),
                     const SizedBox(height: 16),
                     
                     // 调试命令
@@ -279,6 +286,178 @@ class _DebugScreenState extends State<DebugScreen> {
               },
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// LLM 日志卡片
+  Widget _buildLLMLogCard() {
+    final logs = _llmLogger.logs;
+    final recentLogs = logs.isEmpty ? [] : logs.reversed.take(20).toList();
+    
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.chat, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                Text('LLM 日志', style: Theme.of(context).textTheme.titleMedium),
+                const Spacer(),
+                Text('共 ${logs.length} 条', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline)),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () => setState(() => _llmLogger.clearLogs()),
+                  child: const Text('清空'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            
+            if (logs.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Center(
+                  child: Text(
+                    '暂无 LLM 日志\n在对话页面发送消息后，这里会显示请求和响应',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              )
+            else
+              Container(
+                height: 300,
+                decoration: BoxDecoration(
+                  color: Colors.black87,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(8),
+                  itemCount: recentLogs.length,
+                  itemBuilder: (context, index) {
+                    final log = recentLogs[index];
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: _getLogColor(log.type).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: _getLogColor(log.type).withOpacity(0.3)),
+                      ),
+                      child: Text(
+                        log.toString(),
+                        style: TextStyle(
+                          color: _getLogColor(log.type),
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            
+            const SizedBox(height: 12),
+            
+            // 查看完整日志按钮
+            if (logs.isNotEmpty)
+              OutlinedButton.icon(
+                onPressed: () => _showFullLLMLogs(context),
+                icon: const Icon(Icons.list, size: 18),
+                label: const Text('查看完整日志'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Color _getLogColor(String type) {
+    switch (type) {
+      case 'request':
+        return Colors.blue.shade300;
+      case 'response':
+        return Colors.green.shade300;
+      case 'error':
+        return Colors.red.shade300;
+      default:
+        return Colors.grey.shade300;
+    }
+  }
+  
+  void _showFullLLMLogs(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.9,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Container(
+          color: Colors.black87,
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const Text('LLM 完整日志', style: TextStyle(color: Colors.white, fontSize: 18)),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: _llmLogger.exportToJson()));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('日志已复制到剪贴板')),
+                        );
+                      },
+                      child: const Text('复制 JSON'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('关闭'),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(8),
+                  itemCount: _llmLogger.logs.length,
+                  itemBuilder: (context, index) {
+                    final log = _llmLogger.logs.reversed.toList()[index];
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: _getLogColor(log.type).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: _getLogColor(log.type).withOpacity(0.3)),
+                      ),
+                      child: SelectableText(
+                        log.toString(),
+                        style: TextStyle(
+                          color: _getLogColor(log.type),
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

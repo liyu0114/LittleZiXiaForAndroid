@@ -19,6 +19,7 @@ import 'sensor_data_screen.dart';
 import 'group_chat_entry_screen.dart';  // 新增群聊入口
 import 'twenty_four_game_entry_screen.dart';  // 新增24点游戏入口
 import 'network_game_screen.dart';  // 联网24点游戏
+import 'sandbox/sandbox_screen.dart';  // 代码沙盒
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -143,6 +144,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             Tab(icon: Icon(Icons.sensors), text: '传感器'),
             Tab(icon: Icon(Icons.settings), text: '设置'),
             Tab(icon: Icon(Icons.cloud), text: 'Gateway'),
+            Tab(icon: Icon(Icons.code), text: '沙盒'),
             Tab(icon: Icon(Icons.bug_report), text: '调试'),
           ],
         ),
@@ -193,6 +195,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               const SensorDataScreen(),
               const SettingsScreen(),
               const GatewayDashboard(),
+              const SandboxScreen(),
               const DebugScreen(),
             ],
           ),

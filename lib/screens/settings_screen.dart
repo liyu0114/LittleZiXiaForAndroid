@@ -52,9 +52,12 @@ class SettingsScreen extends StatelessWidget {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
-                              value ? '✅ 已开启自动语音播放' : '🔇 已关闭自动语音播放',
+                              value
+                                  ? '🔊 已开启自动语音播放'
+                                  : '🔇 已关闭自动语音播放',
                             ),
-                            backgroundColor: value ? Colors.green : Colors.grey,
+                            backgroundColor:
+                                value ? Colors.green : Colors.grey,
                             duration: const Duration(seconds: 2),
                           ),
                         );
@@ -78,7 +81,8 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const MemorySearchScreen()),
+                    MaterialPageRoute(
+                        builder: (_) => const MemorySearchScreen()),
                   );
                 },
               ),
@@ -116,7 +120,7 @@ class SettingsScreen extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.info_outline),
                 title: const Text('小紫霞'),
-                subtitle: const Text('版本 1.0.37 (Build 67)'),
+                subtitle: const Text('版本 1.0.111 (Build 131)'),
                 onTap: () => _showAboutDialog(context),
               ),
               ListTile(
@@ -126,7 +130,7 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => showLicensePage(
                   context: context,
                   applicationName: '小紫霞',
-                  applicationVersion: '1.0.37',
+                  applicationVersion: '1.0.111 (Build 131)',
                 ),
               ),
               ListTile(
@@ -168,7 +172,8 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSection(BuildContext context, String title, List<Widget> children) {
+  Widget _buildSection(
+      BuildContext context, String title, List<Widget> children) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -258,8 +263,9 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (context) => AboutDialog(
         applicationName: '小紫霞',
-        applicationVersion: '1.0.37 (Build 67)',
-        applicationIcon: const Text('💜', style: TextStyle(fontSize: 48)),
+        applicationVersion: '1.0.111 (Build 131)',
+        applicationIcon:
+            const Text('💜', style: TextStyle(fontSize: 48)),
         children: const [
           SizedBox(height: 16),
           Text('个人 AI 助理移动客户端'),
@@ -277,12 +283,16 @@ class SettingsScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _summarizeSkill(BuildContext context, AppState appState) async {
+  Future<void> _summarizeSkill(
+      BuildContext context, AppState appState) async {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Row(
           children: [
-            SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+            SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2)),
             SizedBox(width: 12),
             Text('正在分析对话...'),
           ],
@@ -298,14 +308,15 @@ class SettingsScreen extends StatelessWidget {
       if (skill != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('✅ 成功总结 Skill：${skill.name}'),
+            content: Text('✅ 成功总结 Skill: ${skill.name}'),
             duration: const Duration(seconds: 3),
           ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('ℹ️ ${appState.error ?? "没有识别到可复用的模式"}'),
+            content: Text(
+                'ℹ️ ${appState.error ?? "没有识别到可复用的模式"}'),
             duration: const Duration(seconds: 3),
           ),
         );

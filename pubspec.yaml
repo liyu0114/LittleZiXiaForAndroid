@@ -1,6 +1,6 @@
 name: little_zixia
 description: LittleZiXia - Personal AI Assistant Mobile Client
-version: 1.0.104+127
+version: 1.0.111+131
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -58,6 +58,8 @@ dependencies:
   flutter_markdown: ^0.6.14       # Markdown 渲染
   markdown: ^7.0.0                # Markdown 解析
   share_plus: ^10.0.0             # 系统分享
+  webview_flutter: ^4.13.1
+  webview_flutter_android: ^4.10.15
 
 dev_dependencies:
   flutter_test:

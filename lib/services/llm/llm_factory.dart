@@ -88,7 +88,10 @@ const List<ProviderInfo> availableProviders = [
     description: 'Qwen 系列模型',
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     apiKeyPlaceholder: 'sk-...',
-    defaultModels: ['qwen-max', 'qwen-plus', 'qwen-turbo'],
+    defaultModels: [
+      'qwen-max', 'qwen-plus', 'qwen-turbo',
+      'qwen-vl-max', 'qwen-vl-plus',  // 视觉模型（支持图片）
+    ],
   ),
   ProviderInfo(
     id: 'openai',

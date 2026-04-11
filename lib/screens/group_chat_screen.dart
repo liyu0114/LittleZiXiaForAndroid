@@ -6,9 +6,11 @@
 import 'dart:async';
 import 'dart:math';  // 添加 Random
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';  // 用于复制到剪贴板
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../services/chat/chat_bot_service.dart';
+import '../services/llm_logger_service.dart';  // LLM 日志服务
 
 /// 群聊消息
 class LocalChatMessage {
@@ -269,6 +271,17 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           return null;
         }
       },
+      llmGenerateCallback: (message, history) async {
+        try {
+          debugPrint('[GroupChat] 调用 LLM 生成回复: $message');
+          final result = await appState.generateLLMResponse(message, history);
+          debugPrint('[GroupChat] LLM 回复: $result');
+          return result;
+        } catch (e) {
+          debugPrint('[GroupChat] LLM 生成失败: $e');
+          return null;
+        }
+      },
       config: botConfig,
       replyProbability: 0.15,  // 降低随机回复概率到 15%
       minReplyDelay: 2000,
@@ -392,6 +405,165 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     }
   }
   
+  /// 显示 LLM 日志
+  void _showLLMLogs() {
+    final logger = LLMLoggerService();
+    final logs = logger.logs.reversed.toList();
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.8,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Container(
+          color: Colors.black87,
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const Text('LLM 日志', style: TextStyle(color: Colors.white, fontSize: 18)),
+                    const SizedBox(width: 8),
+                    Text('(${logs.length} 条)', style: TextStyle(color: Colors.grey.shade400, fontSize: 14)),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: logger.exportToJson()));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('日志已复制到剪贴板')),
+                        );
+                      },
+                      child: const Text('复制 JSON'),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        logger.clearLogs();
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('日志已清空')),
+                        );
+                      },
+                      child: const Text('清空'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('关闭'),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: logs.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.info_outline, size: 48, color: Colors.grey.shade600),
+                            const SizedBox(height: 16),
+                            Text(
+                              '暂无 LLM 日志',
+                              style: TextStyle(color: Colors.grey.shade400, fontSize: 16),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '发送消息后，这里会显示 LLM 的请求和响应',
+                              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        controller: scrollController,
+                        padding: const EdgeInsets.all(8),
+                        itemCount: logs.length,
+                        itemBuilder: (context, index) {
+                          final log = logs[index];
+                          Color color;
+                          IconData icon;
+                          switch (log.type) {
+                            case 'request':
+                              color = Colors.blue.shade300;
+                              icon = Icons.upload;
+                              break;
+                            case 'response':
+                              color = Colors.green.shade300;
+                              icon = Icons.download;
+                              break;
+                            case 'error':
+                              color = Colors.red.shade300;
+                              icon = Icons.error;
+                              break;
+                            default:
+                              color = Colors.grey.shade300;
+                              icon = Icons.info;
+                          }
+                          
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: color.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: color.withOpacity(0.3)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(icon, size: 16, color: color),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '[${log.time.toString().substring(11, 19)}] ${log.type.toUpperCase()}',
+                                      style: TextStyle(
+                                        color: color,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    if (log.provider != null) ...[
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        log.provider!,
+                                        style: TextStyle(color: Colors.grey.shade400, fontSize: 11),
+                                      ),
+                                    ],
+                                    if (log.model != null) ...[
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '/ ${log.model}',
+                                        style: TextStyle(color: Colors.grey.shade400, fontSize: 11),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                SelectableText(
+                                  log.data['content'] ?? log.data['error'] ?? log.data['lastMessage'] ?? 'No content',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontFamily: 'monospace',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
   /// 清空聊天记录
   void _clearChat() {
     showDialog(
@@ -510,6 +682,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             icon: const Icon(Icons.add),
             onPressed: _addBot,
             tooltip: '添加机器人',
+          ),
+          IconButton(
+            icon: const Icon(Icons.bug_report),
+            onPressed: _showLLMLogs,
+            tooltip: '查看 LLM 日志',
           ),
           PopupMenuButton<String>(
             onSelected: (value) {

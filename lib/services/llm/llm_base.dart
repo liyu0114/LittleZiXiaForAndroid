@@ -19,6 +19,10 @@ class ChatMessage {
   final String? name;
   final Map<String, dynamic>? toolCalls;
   final String? toolCallId;
+  
+  // 多模态支持
+  final List<Map<String, dynamic>>? images;  // 图片列表（base64 或 URL）
+  final bool isMultimodal;  // 是否多模态消息
 
   ChatMessage({
     required this.role,
@@ -26,9 +30,46 @@ class ChatMessage {
     this.name,
     this.toolCalls,
     this.toolCallId,
+    this.images,
+    this.isMultimodal = false,
   });
 
   Map<String, dynamic> toJson() {
+    // 如果是视觉模型且包含图片，使用多模态格式
+    if (isMultimodal && images != null && images!.isNotEmpty) {
+      final contentParts = <Map<String, dynamic>>[
+        {'type': 'text', 'text': content},
+      ];
+      
+      // 添加图片（通义千问 VL 格式）
+      for (final img in images!) {
+        // image_url 必须是一个对象，包含 url 字段
+        if (img.containsKey('url')) {
+          contentParts.add({
+            'type': 'image_url',
+            'image_url': {
+              'url': img['url'],
+            },
+          });
+        } else {
+          // 如果直接是 URL
+          contentParts.add({
+            'type': 'image_url',
+            'image_url': img,
+          });
+        }
+      }
+      
+      return {
+        'role': role.name,
+        'content': contentParts,
+        if (name != null) 'name': name,
+        if (toolCalls != null) 'tool_calls': toolCalls,
+        if (toolCallId != null) 'tool_call_id': toolCallId,
+      };
+    }
+    
+    // 普通文本消息
     return {
       'role': role.name,
       'content': content,
@@ -56,6 +97,17 @@ class ChatMessage {
 
   factory ChatMessage.assistant(String content) =>
       ChatMessage(role: MessageRole.assistant, content: content);
+  
+  /// 创建多模态消息（文本 + 图片）
+  factory ChatMessage.multimodal({
+    required String text,
+    required List<Map<String, dynamic>> images,
+  }) => ChatMessage(
+    role: MessageRole.user,
+    content: text,
+    images: images,
+    isMultimodal: true,
+  );
 }
 
 /// 模型信息
@@ -120,6 +172,16 @@ class LLMConfig {
     this.maxTokens = 4096,
     this.systemPrompt,
   });
+  
+  /// 检测是否为视觉模型
+  bool get isVisionModel {
+    final lowerModel = model.toLowerCase();
+    return lowerModel.contains('vl') ||
+           lowerModel.contains('vision') ||
+           lowerModel.contains('gemini') ||
+           lowerModel.contains('gpt-4o') ||
+           lowerModel.contains('claude-3');
+  }
 
   Map<String, dynamic> toJson() {
     return {

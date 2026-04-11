@@ -134,9 +134,13 @@ class BotConfig {
 /// 技能执行回调
 typedef SkillExecuteCallback = Future<String?> Function(String skillId, Map<String, dynamic> params);
 
+/// LLM 生成回调
+typedef LLMGenerateCallback = Future<String?> Function(String message, List<Map<String, String>> history);
+
 /// 群聊机器人服务
 class ChatBotService extends ChangeNotifier {
   final SkillExecuteCallback? _skillExecuteCallback;  // 技能执行回调
+  final LLMGenerateCallback? _llmGenerateCallback;    // LLM 生成回调（优先使用）
   final BotConfig _config;
   
   // 对话历史（用于上下文）
@@ -164,11 +168,13 @@ class ChatBotService extends ChangeNotifier {
   
   ChatBotService({
     SkillExecuteCallback? skillExecuteCallback,
+    LLMGenerateCallback? llmGenerateCallback,  // 新增：LLM 生成回调
     BotConfig? config,
     double replyProbability = 0.3,
     int minReplyDelay = 1500,
     int maxReplyDelay = 4000,
   }) : _skillExecuteCallback = skillExecuteCallback,
+       _llmGenerateCallback = llmGenerateCallback,
        _config = config ?? BotConfig.defaultBot(),
        _replyProbability = replyProbability,
        _minReplyDelay = minReplyDelay,
@@ -246,8 +252,9 @@ class ChatBotService extends ChangeNotifier {
     debugPrint('[ChatBotService] 消息: $recentMessage');
     debugPrint('[ChatBotService] 角色配置: ${_config.role}');
     debugPrint('[ChatBotService] 对话历史长度: ${_conversationHistory.length}');
+    debugPrint('[ChatBotService] LLM 回调: ${_llmGenerateCallback != null ? "已设置" : "未设置"}');
 
-    // 1. 尝试使用技能
+    // 1. 尝试使用技能（特定技能优先）
     if (_skillExecuteCallback != null) {
       try {
         debugPrint('[ChatBotService] 尝试执行技能...');
@@ -262,8 +269,27 @@ class ChatBotService extends ChangeNotifier {
     } else {
       debugPrint('[ChatBotService] ⚠️ 技能回调未设置');
     }
+
+    // 2. 【优先】调用 LLM 生成回复
+    if (_llmGenerateCallback != null) {
+      try {
+        debugPrint('[ChatBotService] 调用 LLM 生成回复...');
+        final llmResponse = await _llmGenerateCallback!(
+          recentMessage,
+          List.from(_conversationHistory),
+        );
+        if (llmResponse != null && llmResponse.isNotEmpty) {
+          debugPrint('[ChatBotService] ✅ LLM 回复: $llmResponse');
+          return llmResponse;
+        }
+      } catch (e) {
+        debugPrint('[ChatBotService] ❌ LLM 生成失败: $e');
+      }
+    } else {
+      debugPrint('[ChatBotService] ⚠️ LLM 回调未设置，使用后备回复');
+    }
     
-    // 2. 使用后备回复
+    // 3. 【后备】使用硬编码回复（仅在 LLM 不可用时）
     final reply = _generateFallbackReply(recentMessage, senderName);
     debugPrint('[ChatBotService] 后备回复: $reply');
     return reply;

@@ -4,6 +4,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';  // 用于读取图片文件
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logger/logger.dart';
@@ -17,6 +18,7 @@ import '../services/skills/intent_recognizer.dart';
 import '../services/skills/skill_summarizer.dart';
 import '../services/skills/skill_manager_new.dart';
 import '../services/agent/agent_orchestrator.dart';
+import '../services/agent/task_decomposer.dart';
 import '../services/remote/remote_connection.dart';
 import '../services/qrcode/qrcode_service.dart';
 import '../services/voice/tts_service.dart';
@@ -28,7 +30,45 @@ import '../services/web/web_fetch_service.dart';
 import '../services/memory/memory_service.dart';
 import '../services/vision/image_analysis_service.dart';
 import '../services/context/context_manager.dart';
+import '../services/llm_logger_service.dart';  // LLM 日志服务
+import '../services/agent/agent_loop_v2.dart';
+import '../services/agent/agent_tools.dart';
+import '../services/sandbox/code_sandbox_service.dart';
+import '../services/sandbox/code_agent_tools.dart';
 import '../widgets/task_list.dart';
+
+/// Agent 执行步骤（用于 UI 展示进度）
+class AgentStep {
+  final String id;
+  final String description;
+  String status; // pending, running, completed, failed, retrying
+  String? result;
+  String? error;
+  int retryCount;
+
+  AgentStep({
+    required this.id,
+    required this.description,
+    this.status = 'pending',
+    this.result,
+    this.error,
+    this.retryCount = 0,
+  });
+
+  String get icon {
+    switch (status) {
+      case 'pending': return '⏳';
+      case 'running': return '🔄';
+      case 'completed': return '✅';
+      case 'failed': return '❌';
+      case 'retrying': return '🔁';
+      default: return '❓';
+    }
+  }
+
+  @override
+  String toString() => '$icon $description${status == 'completed' && result != null ? '\n   → ${result!.length > 80 ? '${result!.substring(0, 80)}...' : result!}' : ''}';
+}
 
 /// 对话消息（UI 层使用）
 class ConversationMessage {
@@ -46,6 +86,9 @@ class ConversationMessage {
   final String? fileName;      // 文件名
   final int? fileSize;         // 文件大小
 
+  // Agent 步骤进度
+  final List<AgentStep> agentSteps;
+
   ConversationMessage({
     required this.id,
     required this.role,
@@ -58,7 +101,9 @@ class ConversationMessage {
     this.filePath,
     this.fileName,
     this.fileSize,
-  }) : timestamp = timestamp ?? DateTime.now();
+    List<AgentStep>? agentSteps,
+  }) : timestamp = timestamp ?? DateTime.now(),
+       agentSteps = agentSteps ?? [];
 
   /// 是否有图片
   bool get hasImage => imagePath != null && imagePath!.isNotEmpty;
@@ -68,6 +113,16 @@ class ConversationMessage {
   
   /// 是否有文件
   bool get hasFile => filePath != null && filePath!.isNotEmpty;
+  
+  /// 是否是 Agent 消息
+  bool get isAgentMessage => agentSteps.isNotEmpty;
+
+  /// Agent 进度摘要
+  String get agentProgressText {
+    if (agentSteps.isEmpty) return '';
+    final completed = agentSteps.where((s) => s.status == 'completed').length;
+    return '($completed/${agentSteps.length})';
+  }
 
   ConversationMessage copyWith({
     String? id,
@@ -81,6 +136,7 @@ class ConversationMessage {
     String? filePath,
     String? fileName,
     int? fileSize,
+    List<AgentStep>? agentSteps,
   }) {
     return ConversationMessage(
       id: id ?? this.id,
@@ -94,6 +150,7 @@ class ConversationMessage {
       filePath: filePath ?? this.filePath,
       fileName: fileName ?? this.fileName,
       fileSize: fileSize ?? this.fileSize,
+      agentSteps: agentSteps ?? this.agentSteps,
     );
   }
 }
@@ -153,6 +210,12 @@ class AppState extends ChangeNotifier {
   // 远程连接
   RemoteConnection? _remoteConnection;
 
+  // Agent Loop V2
+  final AgentLoopServiceV2 _agentLoopV2 = AgentLoopServiceV2();
+
+  // 代码沙盒
+  final CodeSandboxService _codeSandbox = CodeSandboxService();
+
   // 二维码服务
   QRCodeService? _qrcodeService;
 
@@ -183,6 +246,8 @@ class AppState extends ChangeNotifier {
   RemoteConnection? get remoteConnection => _remoteConnection;
   QRCodeService? get qrcodeService => _qrcodeService;
   bool get isRemoteConnected => _remoteConnection?.isConnected ?? false;
+  AgentLoopServiceV2 get agentLoopV2 => _agentLoopV2;
+  CodeSandboxService get codeSandbox => _codeSandbox;
 
   /// 设置远程连接
   void setRemoteConnection(RemoteConnection? connection) {
@@ -262,6 +327,7 @@ class AppState extends ChangeNotifier {
     // 异步加载 Skills 和 话题
     _initializeSkills();
     _initializeTopics();
+    _codeSandbox.loadFromDisk();
 
     _loadConfig();
   }
@@ -462,10 +528,39 @@ class AppState extends ChangeNotifier {
     _llmConfig = config;
     _llmProvider = LLMFactory.create(config);
 
+    // 同步更新 Agent Loop V2
+    _agentLoopV2.updateProvider(_llmProvider!);
+    _registerAgentTools();
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('llm_config', jsonEncode(config.toJson()));
 
     notifyListeners();
+  }
+
+  /// 注册 Agent 工具
+  void _registerAgentTools() {
+    if (_llmProvider == null) return;
+
+    // 初始化 Agent Loop V2
+    _agentLoopV2.initialize(
+      llmProvider: _llmProvider!,
+      memoryService: _memoryService,
+    );
+
+    // 注册基础工具
+    registerBaseTools(_agentLoopV2);
+
+    // 注册记忆工具
+    registerMemoryTools(_agentLoopV2, _memoryService);
+
+    // 注册 Skill 工具
+    registerSkillTools(_agentLoopV2, _skillManager);
+
+    // 注册代码沙盒工具
+    registerCodeSandboxTools(_agentLoopV2, _codeSandbox);
+
+    debugPrint('[AppState] Agent Loop V2 工具注册完成: ${_agentLoopV2.registeredTools.length} 个');
   }
 
   /// 更新能力配置
@@ -508,9 +603,30 @@ class AppState extends ChangeNotifier {
     
     // 构建 LLM 消息
     String llmContent = content;
-    if (imagePath != null) {
+    List<String>? imageBase64List;
+    
+    // 检测是否为视觉模型且有图片
+    final isVisionModel = llmConfig?.isVisionModel ?? false;
+    if (imagePath != null && isVisionModel) {
+      try {
+        // 读取图片文件并转换为 base64
+        final file = File(imagePath);
+        if (await file.exists()) {
+          final bytes = await file.readAsBytes();
+          final base64 = base64Encode(bytes);
+          imageBase64List = ['data:image/jpeg;base64,$base64'];
+          llmContent = content; // 视觉模型不需要文本描述图片
+          debugPrint('[AppState] 图片已转换为 base64，长度: ${base64.length}');
+        } else {
+          llmContent = '[用户发送了一张图像，但文件不存在]\n$content';
+        }
+      } catch (e) {
+        debugPrint('[AppState] 读取图片失败: $e');
+        llmContent = '[用户发送了一张图像，但读取失败]\n$content';
+      }
+    } else if (imagePath != null) {
       llmContent = '[用户发送了一张图像]\n$content';
-      // TODO: 支持 Vision LLM（通义千问 VL）
+      debugPrint('[AppState] 当前模型不支持图片: ${llmConfig?.model}');
     }
     if (videoPath != null) {
       llmContent = '[用户发送了一段视频（15秒以内）]\n$content';
@@ -521,7 +637,20 @@ class AppState extends ChangeNotifier {
       // TODO: 支持 Document LLM
     }
     
-    _llmMessages.add(ChatMessage.user(llmContent));
+    // 添加消息到 LLM 历史
+    if (imageBase64List != null && imageBase64List.isNotEmpty) {
+      // 多模态消息（带图片）
+      // 直接传递 URL 格式的 Map
+      final imageMaps = imageBase64List.map((b64) => <String, dynamic>{'url': b64}).toList();
+      _llmMessages.add(ChatMessage.multimodal(
+        text: llmContent,
+        images: imageMaps,
+      ));
+      debugPrint('[AppState] 已添加多模态消息: ${imageMaps.length} 张图片');
+    } else {
+      // 普通文本消息
+      _llmMessages.add(ChatMessage.user(llmContent));
+    }
 
     print('[DEBUG] ========== 智能意图识别开始 ==========');
     String? skillResponse;
@@ -569,6 +698,13 @@ class AppState extends ChangeNotifier {
       // 自动播放语音回复
       _speakResponse(skillResponse);
 
+      return;
+    }
+
+    // 否则，检查是否需要 Agent Loop（多步任务）
+    if (_shouldUseAgentLoop(content)) {
+      print('[DEBUG] 检测到多步任务，启用 Agent Loop V2');
+      await _executeWithAgentLoop(content);
       return;
     }
 
@@ -670,6 +806,293 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// 判断是否应该使用 Agent Loop
+  /// 多步任务特征：包含"然后"、"之后"、"并且"等连接词，或者多个动词
+  /// 判断是否需要 Agent 模式（LLM 智能判断 + 正则快速路径）
+  bool _shouldUseAgentLoop(String content) {
+    if (_agentLoopV2.registeredTools.isEmpty) return false;
+    if (_llmProvider == null) return false;
+
+    // 快速路径：明显的多步关键词
+    final multiStepPatterns = [
+      RegExp(r'然后.+(?:再|还|也|和|比较|翻译|搜索|查|发)'),
+      RegExp(r'之后.+(?:再|还|也)'),
+      RegExp(r'先.+(?:然后|再|接着)'),
+      RegExp(r'帮.+然后.+'),
+      RegExp(r'查.+(?:然后|再|并).+(?:翻译|对比|总结|分析|发给)'),
+      RegExp(r'搜索.+(?:然后|再|并).+(?:翻译|对比|总结|分析)'),
+      RegExp(r'帮我'),
+      RegExp(r'请.+(?:然后|再|并|和|以及)'),
+      RegExp(r'分析'),
+      RegExp(r'调研'),
+      RegExp(r'整理'),
+      RegExp(r'规划'),
+      RegExp(r'制定'),
+    ];
+
+    for (final pattern in multiStepPatterns) {
+      if (pattern.hasMatch(content)) {
+        debugPrint('[AppState] Agent Loop 触发: "$content" 匹配 ${pattern.pattern}');
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /// 使用 Agent Loop 执行多步任务（带任务分解 + 失败重试 + 实时进度）
+  Future<void> _executeWithAgentLoop(String content) async {
+    // 确保工具已注册
+    if (_agentLoopV2.registeredTools.isEmpty) {
+      _registerAgentTools();
+    }
+
+    // 添加 Agent 消息占位
+    final agentMsg = ConversationMessage(
+      id: 'assistant_${_messageIndex++}',
+      role: MessageRole.assistant,
+      content: '🤔 正在分析任务...',
+      isStreaming: true,
+      agentSteps: [],
+    );
+    _messages.add(agentMsg);
+    _isGenerating = true;
+    notifyListeners();
+
+    final msgIndex = _messages.length - 1;
+
+    try {
+      // ===== 第1步：任务分解 =====
+      _updateAgentMessage(msgIndex, '🧩 正在分解任务...', steps: [
+        AgentStep(id: 'decompose', description: '分析并分解任务', status: 'running'),
+      ]);
+
+      final taskDecomposer = TaskDecomposer(llmProvider: _llmProvider!);
+      final plan = await taskDecomposer.decompose(content);
+
+      if (plan == null || plan.subtasks.isEmpty) {
+        // 分解失败，回退到直接 Agent Loop
+        debugPrint('[AppState] 任务分解失败，回退到直接执行');
+        _updateAgentMessage(msgIndex, '🔄 任务分解失败，直接执行...', steps: [
+          AgentStep(id: 'decompose', description: '分析并分解任务', status: 'failed', error: '无法分解'),
+          AgentStep(id: 'direct', description: '直接执行任务', status: 'running'),
+        ]);
+
+        final result = await _agentLoopV2.execute(content);
+        _finishAgentMessage(msgIndex, result);
+        return;
+      }
+
+      // ===== 第2步：展示分解计划 =====
+      final steps = plan.subtasks.map((s) => AgentStep(
+        id: s.id,
+        description: s.description,
+      )).toList();
+
+      debugPrint('[AppState] 任务分解完成: ${plan.subtasks.length} 个子任务');
+      for (final s in plan.subtasks) {
+        debugPrint('[AppState]   - ${s.id}: ${s.description} (依赖: ${s.dependencies})');
+      }
+
+      _updateAgentMessage(msgIndex, '📋 任务已分解为 ${steps.length} 个步骤，开始执行...', steps: [
+        AgentStep(id: 'decompose', description: '分析并分解任务', status: 'completed',
+          result: '分解为 ${steps.length} 个子任务'),
+        ...steps,
+      ]);
+
+      // ===== 第3步：逐个执行子任务 =====
+      final currentSteps = <AgentStep>[
+        AgentStep(id: 'decompose', description: '分析并分解任务', status: 'completed',
+          result: '分解为 ${steps.length} 个子任务'),
+        ...steps,
+      ];
+
+      int maxRetries = 2; // 每个子任务最多重试2次
+
+      while (!plan.isCompleted) {
+        final nextTask = plan.getNextExecutable();
+        if (nextTask == null) {
+          // 检查是否有失败的子任务可以重试
+          final failedTask = plan.subtasks.firstWhere(
+            (s) => s.status == 'failed',
+            orElse: () => SubTask(id: '', description: ''),
+          );
+          if (failedTask.id.isEmpty) break; // 没有可执行的了
+
+          // 尝试重试失败任务（换思路）
+          if (failedTask.result != null && !failedTask.result!.contains('已重试')) {
+            _updateStepStatus(currentSteps, failedTask.id, 'retrying');
+            _updateAgentMessage(msgIndex, '🔁 重试: ${failedTask.description}（换一种方式）', steps: currentSteps);
+
+            failedTask.status = 'pending'; // 重置为待执行
+            failedTask.result = '已重试';  // 标记已重试过
+            continue;
+          }
+          break;
+        }
+
+        // 标记当前步骤为运行中
+        _updateStepStatus(currentSteps, nextTask.id, 'running');
+        _updateAgentMessage(msgIndex, '⚡ 执行: ${nextTask.description}', steps: currentSteps);
+
+        // 执行子任务
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            final result = await _agentLoopV2.execute(nextTask.description);
+
+            if (result.success) {
+              plan.markCompleted(nextTask.id, result.content);
+              _updateStepStatus(currentSteps, nextTask.id, 'completed', result: result.content);
+              break;
+            } else {
+              // 失败
+              if (attempt < maxRetries) {
+                debugPrint('[AppState] 子任务 ${nextTask.id} 失败 (${attempt+1}/${maxRetries+1})，重试...');
+                _updateStepStatus(currentSteps, nextTask.id, 'retrying', error: result.error);
+                _updateAgentMessage(msgIndex,
+                  '🔁 子任务失败，重试 (${attempt+1}/${maxRetries}): ${nextTask.description}',
+                  steps: currentSteps);
+
+                // 换思路：在描述中加上"换一种方式"
+                await Future.delayed(Duration(seconds: 1));
+                continue;
+              } else {
+                plan.markFailed(nextTask.id, result.error ?? '执行失败');
+                _updateStepStatus(currentSteps, nextTask.id, 'failed', error: result.error);
+              }
+            }
+          } catch (e) {
+            if (attempt < maxRetries) {
+              _updateStepStatus(currentSteps, nextTask.id, 'retrying', error: e.toString());
+              await Future.delayed(Duration(seconds: 1));
+              continue;
+            } else {
+              plan.markFailed(nextTask.id, e.toString());
+              _updateStepStatus(currentSteps, nextTask.id, 'failed', error: e.toString());
+            }
+          }
+        }
+
+        // 更新进度显示
+        final completedCount = currentSteps.where((s) => s.status == 'completed').length;
+        final totalSteps = currentSteps.length;
+        _updateAgentMessage(msgIndex,
+          '📊 进度: $completedCount/$totalSteps 步骤完成',
+          steps: currentSteps);
+      }
+
+      // ===== 第4步：汇总结果 =====
+      final completedSteps = currentSteps.where((s) => s.status == 'completed').toList();
+      final failedSteps = currentSteps.where((s) => s.status == 'failed').toList();
+
+      final resultBuffer = StringBuffer();
+
+      if (completedSteps.isNotEmpty) {
+        // 用 LLM 汇总所有子任务结果
+        final summaryPrompt = StringBuffer();
+        summaryPrompt.writeln('原始任务: $content');
+        summaryPrompt.writeln('');
+        summaryPrompt.writeln('以下是各个子任务的执行结果，请汇总成一段完整的回复：');
+        summaryPrompt.writeln('');
+        for (final planTask in plan.subtasks) {
+          if (planTask.result != null) {
+            final truncated = planTask.result!.length > 500
+                ? '${planTask.result!.substring(0, 500)}...'
+                : planTask.result!;
+            summaryPrompt.writeln('【${planTask.status == 'completed' ? '✅' : '❌'} ${planTask.description}】');
+            summaryPrompt.writeln(truncated);
+            summaryPrompt.writeln('');
+          }
+        }
+
+        try {
+          final summaryMessages = [ChatMessage.user(summaryPrompt.toString())];
+          final summaryResponse = await _llmProvider!.chat(summaryMessages);
+          resultBuffer.write(summaryResponse.content ?? '任务已完成');
+        } catch (e) {
+          // LLM 汇总失败，直接拼接
+          resultBuffer.writeln('任务执行完成！');
+          for (final planTask in plan.subtasks) {
+            if (planTask.result != null) {
+              resultBuffer.writeln('- ${planTask.description}: ${planTask.result!.length > 100 ? '${planTask.result!.substring(0, 100)}...' : planTask.result}');
+            }
+          }
+        }
+      } else {
+        resultBuffer.write('❌ 任务执行失败：所有子任务均未成功完成');
+      }
+
+      // 更新最终消息
+      _messages[msgIndex] = _messages[msgIndex].copyWith(
+        content: resultBuffer.toString(),
+        isStreaming: false,
+        error: failedSteps.isNotEmpty ? '${failedSteps.length} 个步骤失败' : null,
+        agentSteps: currentSteps,
+      );
+
+      _llmMessages.add(ChatMessage.assistant(resultBuffer.toString()));
+      _speakResponse(resultBuffer.toString());
+      _isGenerating = false;
+      notifyListeners();
+
+    } catch (e) {
+      _messages[msgIndex] = _messages[msgIndex].copyWith(
+        content: '❌ Agent 执行出错: $e',
+        isStreaming: false,
+        error: e.toString(),
+      );
+      _isGenerating = false;
+      notifyListeners();
+    }
+  }
+
+  /// 更新 Agent 消息的步骤进度
+  void _updateAgentMessage(int index, String content, {required List<AgentStep> steps}) {
+    if (index < 0 || index >= _messages.length) return;
+    _messages[index] = _messages[index].copyWith(
+      content: content,
+      agentSteps: steps,
+    );
+    notifyListeners();
+  }
+
+  /// 更新某个步骤的状态
+  void _updateStepStatus(List<AgentStep> steps, String stepId, String status, {String? result, String? error}) {
+    for (int i = 0; i < steps.length; i++) {
+      if (steps[i].id == stepId) {
+        steps[i] = AgentStep(
+          id: steps[i].id,
+          description: steps[i].description,
+          status: status,
+          result: result ?? steps[i].result,
+          error: error ?? steps[i].error,
+          retryCount: status == 'retrying' ? steps[i].retryCount + 1 : steps[i].retryCount,
+        );
+        break;
+      }
+    }
+  }
+
+  /// 完成 Agent 消息（直接执行模式）
+  void _finishAgentMessage(int index, AgentResult result) {
+    if (index < 0 || index >= _messages.length) return;
+    _messages[index] = _messages[index].copyWith(
+      content: result.success
+          ? result.content
+          : '❌ 任务执行失败: ${result.error ?? "未知错误"}',
+      isStreaming: false,
+      error: result.success ? null : result.error,
+    );
+
+    if (result.success) {
+      _llmMessages.add(ChatMessage.assistant(result.content));
+      _speakResponse(result.content);
+    }
+
+    _isGenerating = false;
+    notifyListeners();
+  }
+
   /// 天气 Skill
   void _speakResponse(String text) async {
     try {
@@ -692,6 +1115,89 @@ class AppState extends ChangeNotifier {
       throw Exception('Skill not found: $skillId');
     }
     return _skillManager.executeSkill(skill, params);
+  }
+
+  /// 生成 LLM 回复（供 ChatBotService 调用）
+  Future<String?> generateLLMResponse(String message, List<Map<String, String>> history) async {
+    return generateLLMResponseWithImages(message, history, null);
+  }
+  
+  /// 生成 LLM 回复（支持多模态）
+  Future<String?> generateLLMResponseWithImages(
+    String message,
+    List<Map<String, String>> history,
+    List<String>? imagePaths,  // 图片路径列表（本地路径或 base64）
+  ) async {
+    final logger = LLMLoggerService();
+    
+    if (_llmProvider == null) {
+      debugPrint('[AppState] LLM Provider 未配置');
+      logger.logError(error: 'LLM Provider 未配置');
+      return null;
+    }
+
+    try {
+      // 构建对话历史
+      final messages = <ChatMessage>[];
+
+      // 添加历史消息（简化：全部作为用户消息）
+      for (final msg in history) {
+        final content = msg['content'] ?? '';
+        if (content.isNotEmpty) {
+          messages.add(ChatMessage(role: MessageRole.user, content: content));
+        }
+      }
+
+      // 添加当前消息（可能包含图片）
+      final hasImages = imagePaths != null && imagePaths.isNotEmpty && llmConfig!.isVisionModel;
+      
+      if (hasImages) {
+        // 多模态消息
+        final images = imagePaths.map((path) {
+          // 如果是 base64 数据 URI，直接使用
+          if (path.startsWith('data:')) {
+            return <String, dynamic>{'url': path};
+          }
+          // 否则假设是 base64 字符串
+          return <String, dynamic>{'url': 'data:image/jpeg;base64,$path'};
+        }).toList();
+        
+        messages.add(ChatMessage.multimodal(text: message, images: images));
+        debugPrint('[AppState] 发送多模态消息: ${images.length} 张图片');
+      } else {
+        // 普通文本消息
+        messages.add(ChatMessage(role: MessageRole.user, content: message));
+      }
+
+      // 📤 记录请求
+      logger.logRequest(
+        provider: llmConfig?.provider ?? 'unknown',
+        model: llmConfig?.model ?? 'unknown',
+        messages: messages.map((m) => {
+          'role': m.role.name,
+          'content': m.content,
+          'isMultimodal': m.isMultimodal,
+          'imageCount': m.images?.length ?? 0,
+        }).toList(),
+      );
+
+      // 调用 LLM
+      final response = await _llmProvider!.chat(messages);
+      
+      // 📥 记录响应
+      logger.logResponse(
+        content: response.content,
+        status: response.finishReason ?? 'success',
+        promptTokens: response.promptTokens,
+        completionTokens: response.completionTokens,
+      );
+      
+      return response.content;
+    } catch (e, stackTrace) {
+      debugPrint('[AppState] LLM 生成失败: $e');
+      logger.logError(error: e.toString(), stackTrace: stackTrace);
+      return null;
+    }
   }
 
   /// 保存对话历史

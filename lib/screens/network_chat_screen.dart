@@ -389,6 +389,15 @@ class _NetworkChatScreenState extends State<NetworkChatScreen> {
               return null;
             }
           },
+          llmGenerateCallback: (message, history) async {
+            try {
+              debugPrint('[NetworkChat] 调用 LLM 生成回复');
+              return await appState.generateLLMResponse(message, history);
+            } catch (e) {
+              debugPrint('[NetworkChat] LLM 生成失败: $e');
+              return null;
+            }
+          },
           config: BotConfig.defaultBot(),
           replyProbability: 0.2,
         );
