@@ -33,8 +33,10 @@ import '../services/context/context_manager.dart';
 import '../services/llm_logger_service.dart';  // LLM 日志服务
 import '../services/agent/agent_loop_v2.dart';
 import '../services/agent/agent_tools.dart';
+import '../services/context/smart_context_service.dart';
 import '../services/sandbox/code_sandbox_service.dart';
 import '../services/sandbox/code_agent_tools.dart';
+import '../services/web/web_agent_tools.dart';
 import '../widgets/task_list.dart';
 
 /// Agent 执行步骤（用于 UI 展示进度）
@@ -200,6 +202,10 @@ class AppState extends ChangeNotifier {
   // 上下文管理
   late ContextManager _contextManager;
 
+  // 智能上下文服务（对话压缩 + 跨话题记忆）
+  final SmartContextService _smartContext = SmartContextService();
+  SmartContextService get smartContext => _smartContext;
+
   // 图像分析服务
   ImageAnalysisService? _imageAnalysisService;
 
@@ -248,6 +254,17 @@ class AppState extends ChangeNotifier {
   bool get isRemoteConnected => _remoteConnection?.isConnected ?? false;
   AgentLoopServiceV2 get agentLoopV2 => _agentLoopV2;
   CodeSandboxService get codeSandbox => _codeSandbox;
+
+  // 待发送消息（从其他页面跳转来）
+  String? _pendingMessage;
+  String? get pendingMessage => _pendingMessage;
+  void setPendingMessage(String message) {
+    _pendingMessage = message;
+    notifyListeners();
+  }
+  void clearPendingMessage() {
+    _pendingMessage = null;
+  }
 
   /// 设置远程连接
   void setRemoteConnection(RemoteConnection? connection) {
@@ -320,6 +337,9 @@ class AppState extends ChangeNotifier {
 
     // 初始化上下文管理
     _contextManager = ContextManager();
+
+    // 初始化智能上下文服务
+    _smartContext.loadSummaries();
 
     // 初始化二维码服务
     _qrcodeService = QRCodeService();
@@ -530,6 +550,7 @@ class AppState extends ChangeNotifier {
 
     // 同步更新 Agent Loop V2
     _agentLoopV2.updateProvider(_llmProvider!);
+    _smartContext.initialize(_llmProvider!);
     _registerAgentTools();
 
     final prefs = await SharedPreferences.getInstance();
@@ -559,6 +580,9 @@ class AppState extends ChangeNotifier {
 
     // 注册代码沙盒工具
     registerCodeSandboxTools(_agentLoopV2, _codeSandbox);
+
+    // 注册 Web 工具（搜索+获取）
+    registerWebTools(_agentLoopV2, _webSearchService, _webFetchService);
 
     debugPrint('[AppState] Agent Loop V2 工具注册完成: ${_agentLoopV2.registeredTools.length} 个');
   }
@@ -685,8 +709,8 @@ class AppState extends ChangeNotifier {
       }
     }
 
-    // 如果 Skill 有响应，直接返回
-    if (skillResponse != null) {
+    // 如果 Skill 有响应且不是失败信息，直接返回
+    if (skillResponse != null && !skillResponse.startsWith('⚠️') && !skillResponse.startsWith('❌')) {
       final assistantMsg = ConversationMessage(
         id: 'assistant_${_messageIndex++}',
         role: MessageRole.assistant,
@@ -698,6 +722,16 @@ class AppState extends ChangeNotifier {
       // 自动播放语音回复
       _speakResponse(skillResponse);
 
+      return;
+    }
+
+    // Skill 不可用或失败 → 降级到 Agent Loop 或 LLM
+    // Agent Loop 可以调用 web_search 等工具自主解决问题
+    if (skillResponse != null && _agentLoopV2.registeredTools.isNotEmpty) {
+      debugPrint('[AppState] Skill 不可用，降级到 Agent Loop 自主解决');
+      // 构建 Agent 任务，让 Agent 自己想办法
+      final agentTask = '用户问：$content\n注意：请用可用的工具来回答用户的问题。';
+      await _executeWithAgentLoop(agentTask);
       return;
     }
 
@@ -726,7 +760,9 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final stream = _llmProvider!.chatStream(_llmMessages);
+      // 智能上下文窗口管理：自动裁剪超限的消息
+      final contextMessages = _smartContext.fitContextWindow(_llmMessages);
+      final stream = _llmProvider!.chatStream(contextMessages);
       final buffer = StringBuffer();
 
       await for (final event in stream) {
@@ -767,6 +803,9 @@ class AppState extends ChangeNotifier {
       if (_topicManager.currentTopic != null) {
         _topicManager.currentTopic!.addMessage(ChatMessage.assistant(buffer.toString()));
         _topicManager.save(); // 保存话题
+        
+        // 检查是否需要压缩对话历史
+        await _tryCompressHistory();
       }
       
       await _saveConversationHistory();
@@ -813,7 +852,7 @@ class AppState extends ChangeNotifier {
     if (_agentLoopV2.registeredTools.isEmpty) return false;
     if (_llmProvider == null) return false;
 
-    // 快速路径：明显的多步关键词
+    // 快速路径：明确的多步任务关键词（需要 TaskDecomposer 分解）
     final multiStepPatterns = [
       RegExp(r'然后.+(?:再|还|也|和|比较|翻译|搜索|查|发)'),
       RegExp(r'之后.+(?:再|还|也)'),
@@ -821,7 +860,6 @@ class AppState extends ChangeNotifier {
       RegExp(r'帮.+然后.+'),
       RegExp(r'查.+(?:然后|再|并).+(?:翻译|对比|总结|分析|发给)'),
       RegExp(r'搜索.+(?:然后|再|并).+(?:翻译|对比|总结|分析)'),
-      RegExp(r'帮我'),
       RegExp(r'请.+(?:然后|再|并|和|以及)'),
       RegExp(r'分析'),
       RegExp(r'调研'),
@@ -832,13 +870,36 @@ class AppState extends ChangeNotifier {
 
     for (final pattern in multiStepPatterns) {
       if (pattern.hasMatch(content)) {
-        debugPrint('[AppState] Agent Loop 触发: "$content" 匹配 ${pattern.pattern}');
+        debugPrint('[AppState] Agent Loop（多步）触发: "$content" 匹配 ${pattern.pattern}');
+        return true;
+      }
+    }
+
+    // 单步任务：直接走 Agent Loop（不经过 TaskDecomposer）
+    // 这些任务只需要一个工具调用，不需要分解
+    final singleStepPatterns = [
+      RegExp(r'帮(?:我|忙)?.*(?:做|写|创建|开发|生成).*(?:程序|应用|app|计算器|游戏|工具|网页|页面|网站)'),
+      RegExp(r'帮(?:我|忙)?.*(?:查|搜索|找).*(?:天气|新闻|资料|信息)'),
+      RegExp(r'帮(?:我|忙)?.*(?:翻译|改|修改|更新|优化).*(?:代码|程序|项目)'),
+      RegExp(r'写(?:一(?:个|份|段))?.*(?:代码|程序|HTML|CSS|JS|JavaScript)'),
+      RegExp(r'创建(?:一(?:个|份))?.*(?:项目|应用|程序)'),
+      RegExp(r'开发(?:一(?:个|份))?.*(?:程序|应用|小工具)'),
+    ];
+
+    for (final pattern in singleStepPatterns) {
+      if (pattern.hasMatch(content)) {
+        debugPrint('[AppState] Agent Loop（单步）触发: "$content" 匹配 ${pattern.pattern}');
+        // 标记为单步任务，跳过 TaskDecomposer
+        _isSingleStepTask = true;
         return true;
       }
     }
 
     return false;
   }
+
+  /// 是否是单步任务（不需要 TaskDecomposer 分解）
+  bool _isSingleStepTask = false;
 
   /// 使用 Agent Loop 执行多步任务（带任务分解 + 失败重试 + 实时进度）
   Future<void> _executeWithAgentLoop(String content) async {
@@ -862,7 +923,23 @@ class AppState extends ChangeNotifier {
     final msgIndex = _messages.length - 1;
 
     try {
-      // ===== 第1步：任务分解 =====
+      // ===== 单步任务：直接执行，不走 TaskDecomposer =====
+      if (_isSingleStepTask) {
+        _isSingleStepTask = false;
+        debugPrint('[AppState] 单步任务，直接走 Agent Loop');
+        _updateAgentMessage(msgIndex, '⚡ 正在执行...', steps: [
+          AgentStep(id: 'direct', description: '执行任务', status: 'running'),
+        ]);
+
+        final result = await _agentLoopV2.execute(content);
+        
+        _updateStepStatus(_messages[msgIndex].agentSteps, 'direct', 'completed',
+          result: result.success ? result.content : result.error);
+        _finishAgentMessage(msgIndex, result);
+        return;
+      }
+
+      // ===== 多步任务：先分解再执行 =====
       _updateAgentMessage(msgIndex, '🧩 正在分解任务...', steps: [
         AgentStep(id: 'decompose', description: '分析并分解任务', status: 'running'),
       ]);
@@ -1093,6 +1170,29 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 检查并压缩对话历史（异步，不阻塞 UI）
+  Future<void> _tryCompressHistory() async {
+    try {
+      if (!_smartContext.shouldCompress(_llmMessages)) return;
+      if (_topicManager.currentTopic == null) return;
+
+      final topicId = _topicManager.currentTopic!.id;
+      final result = await _smartContext.compressHistory(
+        messages: _llmMessages,
+        topicId: topicId,
+      );
+
+      if (result.wasCompressed) {
+        _llmMessages.clear();
+        _llmMessages.addAll(result.messages);
+        debugPrint('[AppState] 对话历史已压缩: ${result.messages.length} 条消息');
+      }
+    } catch (e) {
+      debugPrint('[AppState] 压缩对话历史失败: $e');
+      // 不影响主流程
+    }
+  }
+
   /// 天气 Skill
   void _speakResponse(String text) async {
     try {
@@ -1140,11 +1240,23 @@ class AppState extends ChangeNotifier {
       // 构建对话历史
       final messages = <ChatMessage>[];
 
-      // 添加历史消息（简化：全部作为用户消息）
+      // 添加系统提示
+      messages.add(ChatMessage.system(
+        '你是小紫霞智能助手。当用户问天气、翻译、计算等问题时，即使你没有实时数据工具，'
+        '也要尽力用你的知识回答，或者告诉用户你目前无法获取实时数据但可以提供一些建议。'
+        '不要说"我无法获取"，而是尽量提供有帮助的信息。'
+        '回复要简洁友好。'
+      ));
+
+      // 添加历史消息
       for (final msg in history) {
+        final role = msg['role'] ?? 'user';
         final content = msg['content'] ?? '';
         if (content.isNotEmpty) {
-          messages.add(ChatMessage(role: MessageRole.user, content: content));
+          messages.add(ChatMessage(
+            role: role == 'assistant' ? MessageRole.assistant : MessageRole.user,
+            content: content,
+          ));
         }
       }
 

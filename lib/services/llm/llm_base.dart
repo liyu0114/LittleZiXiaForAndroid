@@ -17,7 +17,7 @@ class ChatMessage {
   final MessageRole role;
   final String content;
   final String? name;
-  final Map<String, dynamic>? toolCalls;
+  final dynamic toolCalls;  // OpenAI/GLM 返回 List
   final String? toolCallId;
   
   // 多模态支持
@@ -212,7 +212,7 @@ class LLMConfig {
 class LLMResponse {
   final String content;
   final String? finishReason;
-  final Map<String, dynamic>? toolCalls;
+  final dynamic toolCalls;  // OpenAI/GLM 返回 List，某些 provider 可能返回 Map
   final int? promptTokens;
   final int? completionTokens;
 

@@ -234,115 +234,97 @@ class AgentLoopServiceV2 extends ChangeNotifier {
       }
 
       final aiContent = llmResponse.content ?? '';
-      final toolCallsRaw = llmResponse.toolCalls;
 
       // 添加 AI 消息到历史
       messages.add(ChatMessage(
         role: MessageRole.assistant,
         content: aiContent,
-        toolCalls: toolCallsRaw,
       ));
 
-      // 2. 如果没有工具调用 → 任务完成
-      if (toolCallsRaw == null || toolCallsRaw is! Map) {
-        // 检查 toolCalls 是否在 response 的 choices 里
-        // OpenAI 格式: tool_calls 是一个列表
-        final callsList = _extractToolCalls(llmResponse);
-        if (callsList.isEmpty) {
-          _state = AgentState.completed;
-          notifyListeners();
-          debugPrint('[AgentLoopV2] ✓ 任务完成 (迭代 $_iteration)');
-          return AgentResult(
-            success: true,
-            content: aiContent,
-            iterations: _iteration,
-          );
-        }
-
-        // 执行工具调用
-        _state = AgentState.acting;
+      // 2. 检查是否有工具调用
+      final callsList = _extractToolCalls(llmResponse);
+      if (callsList.isEmpty) {
+        // 没有工具调用 → 任务完成
+        _state = AgentState.completed;
         notifyListeners();
+        debugPrint('[AgentLoopV2] ✓ 任务完成 (迭代 $_iteration)');
+        return AgentResult(
+          success: true,
+          content: aiContent,
+          iterations: _iteration,
+        );
+      }
 
-        for (final call in callsList) {
-          final toolName = call['function']?['name'] ?? call['name'] ?? '';
-          final toolArgsStr = call['function']?['arguments'] ?? '{}';
-          final toolCallId = call['id'] ?? '';
+      // 执行工具调用
+      _state = AgentState.acting;
+      notifyListeners();
 
-          Map<String, dynamic> toolArgs;
-          try {
-            toolArgs = Map<String, dynamic>.from(jsonDecode(toolArgsStr is String ? toolArgsStr : jsonEncode(toolArgsStr)));
-          } catch (_) {
-            toolArgs = {};
-          }
+      for (final call in callsList) {
+        final toolName = call['function']?['name'] ?? call['name'] ?? '';
+        final toolArgsStr = call['function']?['arguments'] ?? '{}';
+        final toolCallId = call['id'] ?? '';
 
-          debugPrint('[AgentLoopV2] 执行工具: $toolName(${_truncateArgs(toolArgs)})');
-
-          // 执行
-          final result = await _executeTool(toolName, toolArgs);
-          final resultJson = jsonEncode({
-            'isSuccess': result.isSuccess,
-            if (result.isSuccess) 'data': result.data,
-            if (!result.isSuccess) 'error': result.error,
-          });
-
-          // 记录指纹用于死循环检测
-          if (toolName != 'finish') {
-            loopHistory.add(_RoundFingerprint(lastObservationHash, '$toolName:$toolArgsStr'));
-            if (loopHistory.length > _loopDetectWindow) {
-              loopHistory.removeAt(0);
-            }
-          }
-
-          // finish 工具 → 直接返回
-          if (toolName == 'finish' && result.isSuccess) {
-            _state = AgentState.completed;
-            notifyListeners();
-            return AgentResult(
-              success: true,
-              content: result.data,
-              iterations: _iteration,
-            );
-          }
-
-          // 添加工具结果到历史
-          messages.add(ChatMessage(
-            role: MessageRole.tool,
-            content: resultJson,
-            toolCallId: toolCallId,
-            name: toolName,
-          ));
-
-          debugPrint('[AgentLoopV2] 工具结果: ${result.isSuccess ? "✓" : "✗"} ${_truncate(result.data ?? result.error ?? "", 100)}');
+        Map<String, dynamic> toolArgs;
+        try {
+          toolArgs = Map<String, dynamic>.from(
+            jsonDecode(toolArgsStr is String ? toolArgsStr : jsonEncode(toolArgsStr)),
+          );
+        } catch (_) {
+          toolArgs = {};
         }
 
-        // 3. 死循环检测
-        if (_isStuckInLoop(loopHistory)) {
-          debugPrint('[AgentLoopV2] ⚠️ 死循环检测！');
-          messages.add(ChatMessage.user(
-            '[系统提示] 检测到你连续多轮执行了相同的操作且结果相同，可能陷入死循环。'
-            '请尝试完全不同的方法，或调用 finish 说明无法完成的原因。',
-          ));
-          loopHistory.clear();
+        debugPrint('[AgentLoopV2] 执行工具: $toolName(${_truncateArgs(toolArgs)})');
+
+        // 执行
+        final result = await _executeTool(toolName, toolArgs);
+        final resultJson = jsonEncode({
+          'isSuccess': result.isSuccess,
+          if (result.isSuccess) 'data': result.data,
+          if (!result.isSuccess) 'error': result.error,
+        });
+
+        // 记录指纹用于死循环检测
+        if (toolName != 'finish') {
+          loopHistory.add(_RoundFingerprint(lastObservationHash, '$toolName:$toolArgsStr'));
+          if (loopHistory.length > _loopDetectWindow) {
+            loopHistory.removeAt(0);
+          }
         }
 
-        // 4. 上下文压缩（发送前）
-        _compressHistory(messages);
-      } else {
-        // toolCallsRaw 是 Map，可能有工具调用
-        // 这个分支处理非标准格式
-        final callsList = _extractToolCalls(llmResponse);
-        if (callsList.isEmpty) {
+        // finish 工具 → 直接返回
+        if (toolName == 'finish' && result.isSuccess) {
           _state = AgentState.completed;
           notifyListeners();
           return AgentResult(
             success: true,
-            content: aiContent,
+            content: result.data,
             iterations: _iteration,
           );
         }
 
-        // ... 同上的执行逻辑（合并到上面的分支处理）
+        // 添加工具结果到历史
+        messages.add(ChatMessage(
+          role: MessageRole.tool,
+          content: resultJson,
+          toolCallId: toolCallId,
+          name: toolName,
+        ));
+
+        debugPrint('[AgentLoopV2] 工具结果: ${result.isSuccess ? "✓" : "✗"} ${_truncate(result.data ?? result.error ?? "", 100)}');
       }
+
+      // 3. 死循环检测
+      if (_isStuckInLoop(loopHistory)) {
+        debugPrint('[AgentLoopV2] ⚠️ 死循环检测！');
+        messages.add(ChatMessage.user(
+          '[系统提示] 检测到你连续多轮执行了相同的操作且结果相同，可能陷入死循环。'
+          '请尝试完全不同的方法，或调用 finish 说明无法完成的原因。',
+        ));
+        loopHistory.clear();
+      }
+
+      // 4. 上下文压缩
+      _compressHistory(messages);
     }
 
     // 超过最大迭代
@@ -395,34 +377,33 @@ class AgentLoopServiceV2 extends ChangeNotifier {
     final raw = response.toolCalls;
     if (raw == null) return calls;
 
-    // toolCalls 来自 OpenAI 的 choice['message']['tool_calls']
-    // 在 OpenAI 格式中，这应该是一个列表
-    // 但 LLMResponse.toolCalls 类型是 Map<String, dynamic>?
-    // 实际 OpenAI 响应中 tool_calls 是一个数组
-
-    if (raw.containsKey('tool_calls') || raw.containsKey('function')) {
-      final tc = raw['tool_calls'];
-      if (tc is List) {
-        for (final call in tc) {
-          if (call is Map<String, dynamic>) {
-            calls.add(call);
-          }
+    // OpenAI/GLM 格式：tool_calls 是一个 List
+    if (raw is List) {
+      for (final call in raw) {
+        if (call is Map) {
+          calls.add(Map<String, dynamic>.from(call));
         }
-      } else if (raw.containsKey('function')) {
-        // 单个工具调用格式
-        calls.add(Map<String, dynamic>.from(raw));
       }
-    } else {
-      // 可能整个 raw 就是 tool_calls 数组或其他格式
-      // 尝试遍历所有值
-      for (final value in raw.values) {
-        if (value is List) {
-          for (final item in value) {
-            if (item is Map<String, dynamic> && item.containsKey('function')) {
-              calls.add(item);
+      return calls;
+    }
+
+    // 兼容：raw 是 Map 的情况
+    if (raw is Map) {
+      // 可能是 {tool_calls: [...]}
+      if (raw.containsKey('tool_calls')) {
+        final tc = raw['tool_calls'];
+        if (tc is List) {
+          for (final call in tc) {
+            if (call is Map) {
+              calls.add(Map<String, dynamic>.from(call));
             }
           }
         }
+        return calls;
+      }
+      // 单个工具调用格式 {function: {...}}
+      if (raw.containsKey('function')) {
+        calls.add(Map<String, dynamic>.from(raw));
       }
     }
 
@@ -505,6 +486,21 @@ class AgentLoopServiceV2 extends ChangeNotifier {
       return '- **${t.name}**: ${t.description}';
     }).join('\n');
 
+    final hasCodeTools = _tools.containsKey('create_code_project') || _tools.containsKey('update_code_file');
+    final codeGuidance = hasCodeTools ? '''
+
+## 代码开发指南
+当用户要求创建程序（计算器、游戏、工具等）时：
+1. 调用 `create_code_project` 工具，在 `code` 参数中提供**完整可用的 HTML 代码**（包含 CSS 和 JavaScript）
+2. 代码必须是完整独立的 HTML 文件，可以直接在浏览器/WebView 中运行
+3. 界面要美观、交互要完整、功能要实用
+4. 不要只给空壳模板，要实现用户要求的全部功能
+5. 如果用户要求修改已有项目，先调用 `list_code_projects` 查看，再调用 `update_code_file` 修改
+
+示例：用户说"帮我做一个计算器"
+→ 调用 create_code_project，name="计算器"，code=一个包含完整计算器 UI 和 JS 逻辑的 HTML 文件
+''' : '';
+
     return '''你是小紫霞智能助手，具备自主执行任务的能力。
 
 ## 工作模式
@@ -519,13 +515,15 @@ class AgentLoopServiceV2 extends ChangeNotifier {
 - 每次只做一步，观察结果再决定下一步
 - 遇到失败尝试不同方法
 - 任务完成后立即回复用户，不要多余操作
-
+- **自主解决问题**：如果某个工具不可用，尝试其他方式完成任务（如 Skill 不可用时用 web_search）
+- **不要说做不到**：尽力用已有工具完成，实在不行才告诉用户限制
+$codeGuidance
 ## 可用工具
 $toolsDesc
 
 ## 完成任务
 当任务完成时，直接回复用户，不要调用工具。
-如果无法完成，说明原因。
+如果无法完成，说明原因和建议的替代方案。
 
 ## 安全约束
 - 不执行破坏性操作

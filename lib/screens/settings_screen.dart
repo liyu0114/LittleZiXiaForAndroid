@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/app_state.dart';
@@ -120,7 +120,7 @@ class SettingsScreen extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.info_outline),
                 title: const Text('小紫霞'),
-                subtitle: const Text('版本 1.0.111 (Build 131)'),
+                subtitle: const Text('版本 1.0.117 (Build 137)'),
                 onTap: () => _showAboutDialog(context),
               ),
               ListTile(
@@ -130,7 +130,7 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => showLicensePage(
                   context: context,
                   applicationName: '小紫霞',
-                  applicationVersion: '1.0.111 (Build 131)',
+                  applicationVersion: '1.0.117 (Build 137)',
                 ),
               ),
               ListTile(
@@ -263,7 +263,7 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (context) => AboutDialog(
         applicationName: '小紫霞',
-        applicationVersion: '1.0.111 (Build 131)',
+        applicationVersion: '1.0.117 (Build 137)',
         applicationIcon:
             const Text('💜', style: TextStyle(fontSize: 48)),
         children: const [

@@ -311,7 +311,7 @@ class ChatBotService extends ChangeNotifier {
     // 天气技能
     if (message.contains('天气')) {
       final locationMatch = RegExp(r'(\w+)(?:的)?天气').firstMatch(message);
-      final location = locationMatch?.group(1) ?? '北京';
+      final location = locationMatch?.group(1) ?? '当前位置';
       
       debugPrint('[ChatBotService] 执行天气技能: location=$location');
       final result = await _skillExecuteCallback!(
@@ -319,9 +319,23 @@ class ChatBotService extends ChangeNotifier {
         {'location': location},
       );
       
-      if (result != null && result.isNotEmpty) {
+      // Skill 成功返回结果
+      if (result != null && result.isNotEmpty && !result.startsWith('⚠️') && !result.startsWith('❌')) {
         return result;
       }
+      
+      // Skill 不可用 → 尝试 web_search 回退
+      debugPrint('[ChatBotService] 天气 Skill 不可用，尝试 web_search');
+      final searchResult = await _skillExecuteCallback!(
+        'web_search',
+        {'query': '$location 天气'},
+      );
+      if (searchResult != null && searchResult.isNotEmpty && !searchResult.startsWith('⚠️')) {
+        return searchResult;
+      }
+      
+      // 都不行 → 返回 null，让 LLM 回复时带上"请用知识回答"的提示
+      return null;
     }
     
     // 翻译技能

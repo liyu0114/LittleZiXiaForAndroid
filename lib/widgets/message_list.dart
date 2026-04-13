@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../providers/app_state.dart';
 import '../services/llm/llm_base.dart';
+import 'agent_progress.dart';
 import 'markdown_message.dart';
 
 class MessageList extends StatefulWidget {
@@ -132,6 +133,19 @@ class _MessageBubble extends StatelessWidget {
 
   const _MessageBubble({required this.message});
 
+  /// 判断是否只是状态消息（如"正在思考..."），不需要单独显示
+  bool _isOnlyStatusMessage(String content) {
+    final statusMessages = [
+      '🤔 正在分析任务...',
+      '🧩 正在分解任务...',
+      '🔄 任务分解失败，直接执行...',
+    ];
+    return statusMessages.contains(content) || 
+           content.startsWith('⚡ 执行:') ||
+           content.startsWith('📊 进度:') ||
+           content.startsWith('🔁');
+  }
+
   @override
   Widget build(BuildContext context) {
     final isUser = message.role == MessageRole.user;
@@ -194,6 +208,17 @@ class _MessageBubble extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                     ],
+
+                    // Agent 步骤进度（如果有）
+                    if (message.isAgentMessage)
+                      AgentProgressWidget(
+                        steps: message.agentSteps,
+                        currentMessage: message.content,
+                      ),
+
+                    // Agent 进度消息 or 普通内容之间有分隔
+                    if (message.isAgentMessage && message.content.isNotEmpty && !_isOnlyStatusMessage(message.content))
+                      const Divider(height: 16),
 
                     // 显示图片
                     if (message.hasImage) ...[

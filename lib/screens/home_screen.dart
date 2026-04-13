@@ -40,6 +40,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     _tabController = TabController(length: 12, vsync: this);  // 12 个 tab
+
+    // 检查待发送消息（从其他页面跳转来的）
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkPendingMessage();
+    });
+  }
+
+  /// 检查是否有待发送的消息
+  void _checkPendingMessage() {
+    final appState = context.read<AppState>();
+    final pending = appState.pendingMessage;
+    if (pending != null && pending.isNotEmpty) {
+      appState.clearPendingMessage();
+      _messageController.text = pending;
+      // 自动滚动到输入框
+      _sendMessage();
+    }
   }
 
   Future<void> _sendMessage() async {
