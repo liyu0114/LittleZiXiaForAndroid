@@ -146,6 +146,18 @@ class _MessageBubble extends StatelessWidget {
            content.startsWith('🔁');
   }
 
+  /// 格式化时间戳
+  String _formatTime(DateTime time) {
+    final now = DateTime.now();
+    final diff = now.difference(time);
+    
+    if (diff.inMinutes < 1) return '刚刚';
+    if (diff.inHours < 1) return '${diff.inMinutes}分钟前';
+    if (diff.inDays < 1) return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    if (diff.inDays < 7) return '${diff.inDays}天前';
+    return '${time.month}/${time.day} ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final isUser = message.role == MessageRole.user;
@@ -309,6 +321,19 @@ class _MessageBubble extends StatelessWidget {
                               textColor:
                                   hasError ? Colors.red.shade900 : null,
                             ),
+
+                    // 时间戳
+                    if (!isStreaming && message.content.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          _formatTime(message.timestamp),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),

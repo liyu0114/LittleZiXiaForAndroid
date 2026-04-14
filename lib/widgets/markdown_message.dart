@@ -8,6 +8,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
 
@@ -253,15 +254,39 @@ void showMessageContextMenu(BuildContext context, String content) {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // 内容预览（最多3行）
+          if (content.length > 100)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.3),
+                border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
+              ),
+              child: Text(
+                content,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
+              ),
+            ),
           ListTile(
             leading: const Icon(Icons.copy),
-            title: const Text('复制全部'),
+            title: const Text('复制'),
             onTap: () {
               Clipboard.setData(ClipboardData(text: content));
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('已复制到剪贴板')),
+                const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)),
               );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.select_all),
+            title: const Text('选择文本'),
+            onTap: () {
+              Navigator.pop(context);
+              // TODO: 进入文本选择模式
             },
           ),
           ListTile(
@@ -269,7 +294,7 @@ void showMessageContextMenu(BuildContext context, String content) {
             title: const Text('分享'),
             onTap: () {
               Navigator.pop(context);
-              // TODO: 分享功能
+              Share.share(content);
             },
           ),
         ],
