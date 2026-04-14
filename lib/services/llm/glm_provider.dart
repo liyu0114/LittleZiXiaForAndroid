@@ -157,6 +157,9 @@ class GLMProvider extends LLMProvider {
       return;
     }
 
+    // 累积 tool_calls（流式中 tool_calls 是增量拼接的）
+    final Map<int, Map<String, dynamic>> accumulatedToolCalls = {};
+
     await for (final line in response.stream
         .toStringStream()
         .transform(const LineSplitter())) {
@@ -164,7 +167,12 @@ class GLMProvider extends LLMProvider {
 
       final data = line.substring(6);
       if (data == '[DONE]') {
-        yield StreamEvent.done();
+        // 提取累积的工具调用
+        final toolCalls = accumulatedToolCalls.isEmpty
+            ? null
+            : (accumulatedToolCalls.keys.toList()..sort())
+                .map((i) => accumulatedToolCalls[i]!).toList();
+        yield StreamEvent.done(toolCalls: toolCalls);
         break;
       }
 
@@ -176,6 +184,40 @@ class GLMProvider extends LLMProvider {
           final content = delta['content'] as String?;
           if (content != null && content.isNotEmpty) {
             yield StreamEvent.delta(content);
+          }
+
+          // 累积 tool_calls
+          final toolCallsDelta = delta['tool_calls'];
+          if (toolCallsDelta is List) {
+            for (final tc in toolCallsDelta) {
+              if (tc is Map) {
+                final idx = tc['index'] as int? ?? 0;
+                if (!accumulatedToolCalls.containsKey(idx)) {
+                  accumulatedToolCalls[idx] = {
+                    'id': tc['id'] ?? '',
+                    'type': 'function',
+                    'function': {
+                      'name': '',
+                      'arguments': '',
+                    },
+                  };
+                }
+                final func = tc['function'];
+                if (func is Map) {
+                  if (func['name'] != null) {
+                    accumulatedToolCalls[idx]!['function']['name'] = func['name'];
+                  }
+                  if (func['arguments'] != null) {
+                    accumulatedToolCalls[idx]!['function']['arguments'] =
+                        (accumulatedToolCalls[idx]!['function']['arguments'] ?? '') +
+                        func['arguments'].toString();
+                  }
+                }
+                if (tc['id'] != null) {
+                  accumulatedToolCalls[idx]!['id'] = tc['id'];
+                }
+              }
+            }
           }
         }
       } catch (e) {

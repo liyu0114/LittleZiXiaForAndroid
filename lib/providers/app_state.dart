@@ -741,15 +741,8 @@ class AppState extends ChangeNotifier {
       return;
     }
 
-    // 否则，检查是否需要 Agent Loop（多步任务）
-    if (_shouldUseAgentLoop(content)) {
-      print('[DEBUG] 检测到多步任务，启用 Agent Loop V2');
-      await _executeWithAgentLoop(content);
-      return;
-    }
-
-    // 否则，调用 LLM
-    print('[DEBUG] 调用 LLM 生成回复...');
+    // 调用 LLM（传入 tools，让 LLM 自己决定是否调用工具）
+    print('[DEBUG] 调用 LLM 生成回复（带工具）...');
 
     // 添加空的助手消息（用于流式填充）
     final assistantIndex = _messages.length;
@@ -768,7 +761,13 @@ class AppState extends ChangeNotifier {
     try {
       // 智能上下文窗口管理：自动裁剪超限的消息
       final contextMessages = _smartContext.fitContextWindow(_llmMessages);
-      final stream = _llmProvider!.chatStream(contextMessages);
+      
+      // 获取工具定义（如果有）
+      final toolDefs = _agentLoopV2.registeredTools.isNotEmpty
+          ? _agentLoopV2.toolDefinitions
+          : null;
+      
+      final stream = _llmProvider!.chatStream(contextMessages, tools: toolDefs);
       final buffer = StringBuffer();
 
       await for (final event in stream) {
@@ -782,6 +781,18 @@ class AppState extends ChangeNotifier {
         }
 
         if (event.done) {
+          // 检查是否有工具调用 → 切换到 Agent Loop
+          if (event.hasToolCalls) {
+            debugPrint('[AppState] LLM 返回 tool_calls，切换到 Agent Loop');
+            // 移除流式占位消息
+            _messages.removeAt(assistantIndex);
+            notifyListeners();
+            // 用 Agent Loop 执行（已有对话上下文 + tool_calls）
+            _isSingleStepTask = true;
+            await _executeWithAgentLoop(content);
+            return;
+          }
+
           final responseText = buffer.toString();
           _messages[assistantIndex] = _messages[assistantIndex].copyWith(
             content: responseText,
@@ -852,54 +863,8 @@ class AppState extends ChangeNotifier {
   }
 
   /// 判断是否应该使用 Agent Loop
-  /// 多步任务特征：包含"然后"、"之后"、"并且"等连接词，或者多个动词
-  /// 判断是否需要 Agent 模式（LLM 智能判断 + 正则快速路径）
-  bool _shouldUseAgentLoop(String content) {
-    if (_agentLoopV2.registeredTools.isEmpty) return false;
-    if (_llmProvider == null) return false;
-
-    // 快速路径：明确的多步任务关键词（需要 TaskDecomposer 分解）
-    final multiStepPatterns = [
-      RegExp(r'然后.+(?:再|还|也|和|比较|翻译|搜索|查|发)'),
-      RegExp(r'之后.+(?:再|还|也)'),
-      RegExp(r'先.+(?:然后|再|接着)'),
-      RegExp(r'帮.+然后.+'),
-      RegExp(r'查.+(?:然后|再|并).+(?:翻译|对比|总结|分析|发给)'),
-      RegExp(r'搜索.+(?:然后|再|并).+(?:翻译|对比|总结|分析)'),
-      RegExp(r'请.+(?:然后|再|并|和|以及)'),
-      RegExp(r'分析.+(?:数据|报告|结果|对比|趋势)'),
-    ];
-
-    for (final pattern in multiStepPatterns) {
-      if (pattern.hasMatch(content)) {
-        debugPrint('[AppState] Agent Loop（多步）触发: "$content" 匹配 ${pattern.pattern}');
-        return true;
-      }
-    }
-
-    // 单步任务：直接走 Agent Loop（不经过 TaskDecomposer）
-    // 这些任务只需要一个工具调用，不需要分解
-    final singleStepPatterns = [
-      RegExp(r'帮(?:我|忙)?.*(?:做|写|创建|开发|生成).*(?:程序|应用|app|计算器|游戏|工具|网页|页面|网站)'),
-      RegExp(r'帮(?:我|忙)?.*(?:查|搜索|找).*(?:天气|新闻|资料|信息)'),
-      RegExp(r'帮(?:我|忙)?.*(?:翻译|改|修改|更新|优化).*(?:代码|程序|项目)'),
-      RegExp(r'写(?:一(?:个|份|段))?.*(?:代码|程序|HTML|CSS|JS|JavaScript)'),
-      RegExp(r'创建(?:一(?:个|份))?.*(?:项目|应用|程序)'),
-      RegExp(r'开发(?:一(?:个|份))?.*(?:程序|应用|小工具)'),
-    ];
-
-    for (final pattern in singleStepPatterns) {
-      if (pattern.hasMatch(content)) {
-        debugPrint('[AppState] Agent Loop（单步）触发: "$content" 匹配 ${pattern.pattern}');
-        // 标记为单步任务，跳过 TaskDecomposer
-        _isSingleStepTask = true;
-        return true;
-      }
-    }
-
-    return false;
-  }
-
+  /// 策略：
+  /// 1. 明确的多步任务 → TaskDecomposer 分解
   /// 是否是单步任务（不需要 TaskDecomposer 分解）
   bool _isSingleStepTask = false;
 

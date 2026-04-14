@@ -230,20 +230,27 @@ class StreamEvent {
   final String? delta;
   final bool done;
   final String? error;
-  final Map<String, dynamic>? toolCalls;
+  /// 完整的工具调用列表（仅在 done 事件中携带）
+  final List<Map<String, dynamic>>? toolCallsList;
 
   StreamEvent({
     this.delta,
     this.done = false,
     this.error,
-    this.toolCalls,
+    this.toolCallsList,
   });
 
+  /// 是否包含工具调用
+  bool get hasToolCalls => toolCallsList != null && toolCallsList!.isNotEmpty;
+
+  // 保留旧字段兼容
+  Map<String, dynamic>? get toolCalls =>
+      toolCallsList != null && toolCallsList!.isNotEmpty ? {'tool_calls': toolCallsList} : null;
+
   factory StreamEvent.delta(String text) => StreamEvent(delta: text);
-  factory StreamEvent.done() => StreamEvent(done: true);
+  factory StreamEvent.done({List<Map<String, dynamic>>? toolCalls}) =>
+      StreamEvent(done: true, toolCallsList: toolCalls);
   factory StreamEvent.error(String message) => StreamEvent(error: message);
-  factory StreamEvent.toolCalls(Map<String, dynamic> calls) =>
-      StreamEvent(toolCalls: calls);
 }
 
 /// LLM 异常

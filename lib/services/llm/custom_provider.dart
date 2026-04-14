@@ -144,6 +144,9 @@ class CustomLLMProvider extends LLMProvider {
 
       final response = await http.Client().send(request).timeout(const Duration(seconds: 120));
 
+      // 累积 tool_calls
+      final Map<int, Map<String, dynamic>> accumulatedToolCalls = {};
+
       await for (final chunk
           in response.stream.transform(utf8.decoder)) {
         final lines = chunk.split('\n');
@@ -152,7 +155,11 @@ class CustomLLMProvider extends LLMProvider {
           if (line.startsWith('data: ')) {
             final data = line.substring(6).trim();
             if (data == '[DONE]') {
-              yield StreamEvent.done();
+              final toolCalls = accumulatedToolCalls.isEmpty
+                  ? null
+                  : (accumulatedToolCalls.keys.toList()..sort())
+                      .map((i) => accumulatedToolCalls[i]!).toList();
+              yield StreamEvent.done(toolCalls: toolCalls);
               return;
             }
 
@@ -164,6 +171,37 @@ class CustomLLMProvider extends LLMProvider {
                 final content = delta['content'];
                 if (content != null) {
                   yield StreamEvent.delta(content);
+                }
+
+                // 累积 tool_calls
+                final toolCallsDelta = delta['tool_calls'];
+                if (toolCallsDelta is List) {
+                  for (final tc in toolCallsDelta) {
+                    if (tc is Map) {
+                      final idx = tc['index'] as int? ?? 0;
+                      if (!accumulatedToolCalls.containsKey(idx)) {
+                        accumulatedToolCalls[idx] = {
+                          'id': tc['id'] ?? '',
+                          'type': 'function',
+                          'function': {'name': '', 'arguments': ''},
+                        };
+                      }
+                      final func = tc['function'];
+                      if (func is Map) {
+                        if (func['name'] != null) {
+                          accumulatedToolCalls[idx]!['function']['name'] = func['name'];
+                        }
+                        if (func['arguments'] != null) {
+                          accumulatedToolCalls[idx]!['function']['arguments'] =
+                              (accumulatedToolCalls[idx]!['function']['arguments'] ?? '') +
+                              func['arguments'].toString();
+                        }
+                      }
+                      if (tc['id'] != null) {
+                        accumulatedToolCalls[idx]!['id'] = tc['id'];
+                      }
+                    }
+                  }
                 }
               }
             } catch (e) {
