@@ -861,11 +861,7 @@ class AppState extends ChangeNotifier {
       RegExp(r'查.+(?:然后|再|并).+(?:翻译|对比|总结|分析|发给)'),
       RegExp(r'搜索.+(?:然后|再|并).+(?:翻译|对比|总结|分析)'),
       RegExp(r'请.+(?:然后|再|并|和|以及)'),
-      RegExp(r'分析'),
-      RegExp(r'调研'),
-      RegExp(r'整理'),
-      RegExp(r'规划'),
-      RegExp(r'制定'),
+      RegExp(r'分析.+(?:数据|报告|结果|对比|趋势)'),
     ];
 
     for (final pattern in multiStepPatterns) {

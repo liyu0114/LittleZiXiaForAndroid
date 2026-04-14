@@ -501,6 +501,25 @@ class AgentLoopServiceV2 extends ChangeNotifier {
 → 调用 create_code_project，name="计算器"，code=一个包含完整计算器 UI 和 JS 逻辑的 HTML 文件
 ''' : '';
 
+    final hasWebSearch = _tools.containsKey('web_search');
+    final webGuidance = hasWebSearch ? '''
+
+## 联网搜索指南
+当你需要获取实时信息（天气、新闻、时事、价格、最新数据等）时：
+1. 优先调用 `web_search` 搜索相关信息
+2. 如果搜索结果中的链接看起来有用，可以调用 `web_fetch` 获取详细内容
+3. 综合搜索结果，用你自己的语言整理回答用户
+4. 不要逐条罗列搜索结果，要提炼要点
+
+示例：用户问"今天北京天气怎么样"
+→ 调用 web_search，query="北京今天天气"
+→ 整理结果回复用户
+
+示例：用户问"最新的AI新闻"
+→ 调用 web_search，query="AI人工智能最新新闻"
+→ 整理回复
+''' : '';
+
     return '''你是小紫霞智能助手，具备自主执行任务的能力。
 
 ## 工作模式
@@ -517,7 +536,7 @@ class AgentLoopServiceV2 extends ChangeNotifier {
 - 任务完成后立即回复用户，不要多余操作
 - **自主解决问题**：如果某个工具不可用，尝试其他方式完成任务（如 Skill 不可用时用 web_search）
 - **不要说做不到**：尽力用已有工具完成，实在不行才告诉用户限制
-$codeGuidance
+$codeGuidance$webGuidance
 ## 可用工具
 $toolsDesc
 
