@@ -584,6 +584,10 @@ class AppState extends ChangeNotifier {
     // 注册 Web 工具（搜索+获取）
     registerWebTools(_agentLoopV2, _webSearchService, _webFetchService);
 
+    // 设置工具调用回调（UI 实时展示）
+    _agentLoopV2.onToolCall = _onAgentToolCall;
+    _agentLoopV2.onToolResult = _onAgentToolResult;
+
     debugPrint('[AppState] Agent Loop V2 工具注册完成: ${_agentLoopV2.registeredTools.length} 个');
   }
 
@@ -731,6 +735,8 @@ class AppState extends ChangeNotifier {
       debugPrint('[AppState] Skill 不可用，降级到 Agent Loop 自主解决');
       // 构建 Agent 任务，让 Agent 自己想办法
       final agentTask = '用户问：$content\n注意：请用可用的工具来回答用户的问题。';
+      // 强制单步模式，不走 TaskDecomposer（避免简单问题被过度分解）
+      _isSingleStepTask = true;
       await _executeWithAgentLoop(agentTask);
       return;
     }
@@ -1143,6 +1149,80 @@ class AppState extends ChangeNotifier {
         );
         break;
       }
+    }
+  }
+
+  /// Agent 工具调用回调 - 实时更新 UI
+  void _onAgentToolCall(String toolName, Map<String, dynamic> args) {
+    if (_messages.isEmpty) return;
+    final lastIdx = _messages.length - 1;
+    if (!_messages[lastIdx].isStreaming) return;
+
+    // 获取工具的友好名称
+    final displayName = _getToolDisplayName(toolName, args);
+    final currentSteps = _messages[lastIdx].agentSteps.toList();
+
+    // 添加或更新工具调用步骤
+    final existingIdx = currentSteps.indexWhere((s) => s.id == 'tool_$toolName');
+    if (existingIdx >= 0) {
+      currentSteps[existingIdx] = AgentStep(
+        id: 'tool_$toolName',
+        description: displayName,
+        status: 'running',
+      );
+    } else {
+      currentSteps.add(AgentStep(
+        id: 'tool_$toolName',
+        description: displayName,
+        status: 'running',
+      ));
+    }
+
+    _updateAgentMessage(lastIdx, '🔧 调用: $displayName', steps: currentSteps);
+  }
+
+  /// Agent 工具结果回调
+  void _onAgentToolResult(String toolName, bool success, String? result) {
+    if (_messages.isEmpty) return;
+    final lastIdx = _messages.length - 1;
+    if (!_messages[lastIdx].isStreaming) return;
+
+    final currentSteps = _messages[lastIdx].agentSteps.toList();
+    final existingIdx = currentSteps.indexWhere((s) => s.id == 'tool_$toolName');
+    if (existingIdx >= 0) {
+      currentSteps[existingIdx] = AgentStep(
+        id: 'tool_$toolName',
+        description: currentSteps[existingIdx].description,
+        status: success ? 'completed' : 'failed',
+        result: result != null && result.length > 80 ? '${result.substring(0, 80)}...' : result,
+        error: success ? null : result,
+      );
+      _updateAgentMessage(lastIdx, _messages[lastIdx].content, steps: currentSteps);
+    }
+  }
+
+  /// 获取工具调用的友好名称
+  String _getToolDisplayName(String toolName, Map<String, dynamic> args) {
+    switch (toolName) {
+      case 'web_search':
+        return '搜索: ${args['query'] ?? ''}';
+      case 'web_fetch':
+        return '获取网页: ${args['url'] ?? ''}';
+      case 'calculator':
+        return '计算: ${args['expression'] ?? ''}';
+      case 'get_current_time':
+        return '获取当前时间';
+      case 'memory_save':
+        return '保存记忆';
+      case 'memory_search':
+        return '搜索记忆';
+      case 'create_code_project':
+        return '创建项目: ${args['name'] ?? ''}';
+      default:
+        if (toolName.startsWith('skill_')) {
+          return '技能: ${toolName.replaceFirst('skill_', '')}';
+        }
+        return '调用: $toolName';
     }
   }
 

@@ -111,7 +111,7 @@ class GLMProvider extends LLMProvider {
         Uri.parse('$_baseUrl/chat/completions'),
         headers: _headers,
         body: jsonEncode(body),
-      );
+      ).timeout(const Duration(seconds: 60));
 
       if (response.statusCode != 200) {
         throw _wrapError(
@@ -149,7 +149,7 @@ class GLMProvider extends LLMProvider {
     request.headers.addAll(_headers);
     request.body = jsonEncode(body);
 
-    final response = await _client.send(request);
+    final response = await _client.send(request).timeout(const Duration(seconds: 120));
 
     if (response.statusCode != 200) {
       final error = await response.stream.bytesToString();

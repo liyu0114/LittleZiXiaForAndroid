@@ -83,7 +83,7 @@ class CustomLLMProvider extends LLMProvider {
           'Content-Type': 'application/json',
         },
         body: json.encode(requestBody),
-      );
+      ).timeout(const Duration(seconds: 60));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -142,7 +142,7 @@ class CustomLLMProvider extends LLMProvider {
       request.headers['Content-Type'] = 'application/json';
       request.body = json.encode(requestBody);
 
-      final response = await http.Client().send(request);
+      final response = await http.Client().send(request).timeout(const Duration(seconds: 120));
 
       await for (final chunk
           in response.stream.transform(utf8.decoder)) {

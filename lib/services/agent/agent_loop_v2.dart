@@ -120,6 +120,10 @@ class AgentLoopServiceV2 extends ChangeNotifier {
   // 保护区：最近 N 轮完整保留
   final int _keepRecentRounds = 3;
 
+  // 工具调用回调（用于 UI 实时展示）
+  void Function(String toolName, Map<String, dynamic> args)? onToolCall;
+  void Function(String toolName, bool success, String? result)? onToolResult;
+
   AgentState get state => _state;
   String get currentTask => _currentTask;
   bool get isRunning => _state == AgentState.thinking || _state == AgentState.acting;
@@ -177,7 +181,21 @@ class AgentLoopServiceV2 extends ChangeNotifier {
     notifyListeners();
 
     try {
-      return await _runLoop(task);
+      // 整体超时 3 分钟
+      return await _runLoop(task).timeout(
+        const Duration(minutes: 3),
+        onTimeout: () {
+          debugPrint('[AgentLoopV2] ⚠️ 整体超时！');
+          _state = AgentState.failed;
+          notifyListeners();
+          return AgentResult(
+            success: false,
+            content: '',
+            error: '执行超时（3分钟），请简化任务或重试',
+            iterations: _iteration,
+          );
+        },
+      );
     } catch (e) {
       _state = AgentState.failed;
       notifyListeners();
@@ -242,7 +260,13 @@ class AgentLoopServiceV2 extends ChangeNotifier {
       ));
 
       // 2. 检查是否有工具调用
-      final callsList = _extractToolCalls(llmResponse);
+      var callsList = _extractToolCalls(llmResponse);
+      
+      // 回退：如果 LLM 不支持 function calling，尝试从文本中解析工具调用
+      if (callsList.isEmpty && aiContent.isNotEmpty) {
+        callsList = _tryParseTextToolCalls(aiContent);
+      }
+      
       if (callsList.isEmpty) {
         // 没有工具调用 → 任务完成
         _state = AgentState.completed;
@@ -274,6 +298,9 @@ class AgentLoopServiceV2 extends ChangeNotifier {
         }
 
         debugPrint('[AgentLoopV2] 执行工具: $toolName(${_truncateArgs(toolArgs)})');
+
+        // 回调：工具开始执行
+        onToolCall?.call(toolName, toolArgs);
 
         // 执行
         final result = await _executeTool(toolName, toolArgs);
@@ -311,6 +338,9 @@ class AgentLoopServiceV2 extends ChangeNotifier {
         ));
 
         debugPrint('[AgentLoopV2] 工具结果: ${result.isSuccess ? "✓" : "✗"} ${_truncate(result.data ?? result.error ?? "", 100)}');
+
+        // 回调：工具执行完成
+        onToolResult?.call(toolName, result.isSuccess, result.isSuccess ? result.data : result.error);
       }
 
       // 3. 死循环检测
@@ -407,6 +437,69 @@ class AgentLoopServiceV2 extends ChangeNotifier {
       }
     }
 
+    return calls;
+  }
+
+  // ==================== 文本工具调用解析（回退）====================
+
+  /// 当 LLM 不支持 function calling 时，尝试从文本中解析工具调用
+  /// 支持格式：
+  /// - ```tool\n{"name": "web_search", "arguments": {"query": "xxx"}}\n```
+  /// - [调用 web_search(query="xxx")]
+  /// - 工具调用: web_search({"query": "xxx"})
+  List<Map<String, dynamic>> _tryParseTextToolCalls(String content) {
+    final calls = <Map<String, dynamic>>[];
+    
+    // 格式1: ```tool ... ``` 代码块
+    final toolBlockRegex = RegExp(r'```tool\s*\n([\s\S]*?)\n```');
+    for (final match in toolBlockRegex.allMatches(content)) {
+      try {
+        final json = jsonDecode(match.group(1)!);
+        if (json is Map) {
+          final name = json['name'] as String? ?? json['tool'] as String?;
+          if (name != null && _tools.containsKey(name)) {
+            calls.add({
+              'id': 'text_call_${calls.length}',
+              'function': {
+                'name': name,
+                'arguments': jsonEncode(json['arguments'] ?? json['params'] ?? {}),
+              },
+            });
+          }
+        }
+      } catch (_) {}
+    }
+    if (calls.isNotEmpty) return calls;
+    
+    // 格式2: [调用 tool_name(args)] 或 工具调用: tool_name(args)
+    final callRegex = RegExp(r'(?:调用|工具调用|call)\s*:\s*(\w+)\s*\((.*?)\)', caseSensitive: false);
+    for (final match in callRegex.allMatches(content)) {
+      final name = match.group(1);
+      if (name != null && _tools.containsKey(name)) {
+        final argsStr = match.group(2) ?? '{}';
+        Map<String, dynamic> args;
+        try {
+          args = Map<String, dynamic>.from(jsonDecode(argsStr));
+        } catch (_) {
+          // 尝试 key=value 格式
+          args = {};
+          for (final pair in argsStr.split(',')) {
+            final kv = pair.split('=');
+            if (kv.length == 2) {
+              args[kv[0].trim()] = kv[1].trim().replaceAll('"', '').replaceAll("'", '');
+            }
+          }
+        }
+        calls.add({
+          'id': 'text_call_${calls.length}',
+          'function': {
+            'name': name,
+            'arguments': jsonEncode(args),
+          },
+        });
+      }
+    }
+    
     return calls;
   }
 
