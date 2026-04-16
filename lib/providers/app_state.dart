@@ -33,10 +33,12 @@ import '../services/context/context_manager.dart';
 import '../services/llm_logger_service.dart';  // LLM 日志服务
 import '../services/agent/agent_loop_v2.dart';
 import '../services/agent/agent_tools.dart';
+import '../services/agent/meta_tools.dart';
 import '../services/context/smart_context_service.dart';
 import '../services/sandbox/code_sandbox_service.dart';
 import '../services/sandbox/code_agent_tools.dart';
 import '../services/web/web_agent_tools.dart';
+import '../services/skills/clawhub_service.dart';
 import '../widgets/task_list.dart';
 
 /// Agent 执行步骤（用于 UI 展示进度）
@@ -221,6 +223,9 @@ class AppState extends ChangeNotifier {
 
   // 代码沙盒
   final CodeSandboxService _codeSandbox = CodeSandboxService();
+
+  // ClawHub 技能市场
+  final ClawHubService _clawhub = ClawHubService();
 
   // 二维码服务
   QRCodeService? _qrcodeService;
@@ -583,6 +588,13 @@ class AppState extends ChangeNotifier {
 
     // 注册 Web 工具（搜索+获取）
     registerWebTools(_agentLoopV2, _webSearchService, _webFetchService);
+
+    // 注册元工具（技能发现+安装+脚本执行）
+    registerMetaTools(_agentLoopV2,
+      clawhub: _clawhub,
+      skillManager: _skillManager,
+      sandbox: _codeSandbox,
+    );
 
     // 设置工具调用回调（UI 实时展示）
     _agentLoopV2.onToolCall = _onAgentToolCall;

@@ -603,17 +603,31 @@ class AgentLoopServiceV2 extends ChangeNotifier {
 2. 如果搜索结果中的链接看起来有用，可以调用 `web_fetch` 获取详细内容
 3. 综合搜索结果，用你自己的语言整理回答用户
 4. 不要逐条罗列搜索结果，要提炼要点
+''' : '';
 
-示例：用户问"今天北京天气怎么样"
-→ 调用 web_search，query="北京今天天气"
-→ 整理结果回复用户
+    final hasSkillHub = _tools.containsKey('skill_hub_search');
+    final skillHubGuidance = hasSkillHub ? '''
 
-示例：用户问"最新的AI新闻"
-→ 调用 web_search，query="AI人工智能最新新闻"
-→ 整理回复
+## 工具发现与扩展（重要！）
+当你发现当前工具不足以完成用户任务时，不要直接说"做不到"。按以下优先级尝试：
+
+### 1. 搜索新技能
+调用 `skill_hub_search` 在技能市场搜索可能存在的新工具。
+例如：用户要查汇率 → 搜索 "exchange rate"；用户要翻译 → 搜索 "translate"。
+
+### 2. 安装新技能
+如果搜索到了合适的技能，调用 `skill_hub_install` 安装它。
+安装成功后，新技能会立即可用，你可以直接在下一轮调用它。
+
+### 3. 自己写代码
+如果技能市场也没有合适的工具，调用 `run_script` 自己写 JS/HTML 代码解决问题。
+你可以写代码来：调用外部 API、做复杂计算、处理数据、生成图表等。
+
+**核心原则：永远先尝试用工具解决，不要轻易说"我做不到"。**
 ''' : '';
 
     return '''你是小紫霞智能助手，具备自主执行任务的能力。
+$skillHubGuidance
 
 ## 工作模式
 你按照以下循环工作：
