@@ -5,7 +5,9 @@
 // 2. skill_hub_install - 安装新技能（安装后自动注册为可用工具）
 // 3. run_script - 执行 JS/HTML 脚本（当没有现成工具时自己写代码解决）
 
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'agent_loop_v2.dart';
 import 'agent_tools.dart'; // SkillAgentTool
 import '../skills/clawhub_service.dart';
@@ -232,26 +234,62 @@ class RunScriptTool extends AgentTool {
     debugPrint('[RunScript] 执行: $name (${code.length} chars)');
 
     try {
-      // 创建临时项目
-      final project = _sandbox.createFromCode(
+      // 尝试从代码中提取 API URL 并直接请求
+      final apiUrls = _extractApiUrls(code);
+      if (apiUrls.isNotEmpty) {
+        debugPrint('[RunScript] 检测到 API URL: $apiUrls');
+        final results = <String>[];
+        for (final url in apiUrls) {
+          try {
+            final response = await http.get(Uri.parse(url))
+                .timeout(const Duration(seconds: 10));
+            if (response.statusCode == 200) {
+              final body = utf8.decode(response.bodyBytes);
+              results.add('✅ GET $url\n${body.length > 2000 ? '${body.substring(0, 2000)}...(截断)' : body}');
+            } else {
+              results.add('❌ GET $url → HTTP ${response.statusCode}');
+            }
+          } catch (e) {
+            results.add('❌ GET $url → $e');
+          }
+        }
+        if (results.isNotEmpty) {
+          return AgentToolResult.success(
+            'API 请求结果:\n${results.join('\n\n')}\n\n请根据以上结果回答用户。',
+          );
+        }
+      }
+
+      // 没有可提取的 API，创建项目保存
+      _sandbox.createFromCode(
         name: name,
         code: code,
         language: 'html',
         description: arguments['description'] as String? ?? 'Agent 自动脚本',
       );
 
-      return AgentToolResult.success(
-        '脚本已创建并可在沙盒中运行。\n'
-        '项目: ${project.name}\n'
-        'ID: ${project.id}\n'
-        '注意：脚本需要用户手动在沙盒页面查看运行结果，'
-        '或你可以在代码中用纯计算方式直接给出答案。\n'
-        '提示：如果只需要纯计算，优先用 calculator 工具；'
-        '如果需要调用 API，在 JS 中使用 fetch() 并将结果写入 document.body。',
+      return AgentToolResult.fail(
+        '脚本无法自动执行（当前不支持 JS 运行时）。'
+        '建议：如需获取数据，直接用 web_fetch 工具；如需搜索，用 web_search。'
+        '不要再用 run_script 做 API 调用，web_fetch 更可靠。',
       );
     } catch (e) {
       return AgentToolResult.fail('脚本执行失败: $e');
     }
+  }
+
+  /// 从 JS/HTML 代码中提取 API URL
+  List<String> _extractApiUrls(String code) {
+    final urls = <String>[];
+    // 匹配 fetch("url") 和 fetch('url')
+    final fetchRegex = RegExp(r"""fetch\s*\(\s*['"]([^'"]+)['"]\s*""");
+    for (final match in fetchRegex.allMatches(code)) {
+      final url = match.group(1);
+      if (url != null && url.startsWith('http')) {
+        urls.add(url);
+      }
+    }
+    return urls;
   }
 }
 

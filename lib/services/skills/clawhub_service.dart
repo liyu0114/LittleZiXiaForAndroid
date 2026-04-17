@@ -402,7 +402,7 @@ class ClawHubService extends ChangeNotifier {
 
   /// 获取技能详情（包含 SKILL.md）
   Future<String?> getSkillContent(String slug) async {
-    // 通过 Gateway 获取
+    // 优先通过 Gateway 获取
     if (_gatewayUrl != null) {
       try {
         final response = await http.get(
@@ -414,15 +414,51 @@ class ClawHubService extends ChangeNotifier {
         
         if (response.statusCode == 200) {
           final data = json.decode(utf8.decode(response.bodyBytes));
-          return data['content'] ?? data['body'];
+          final content = data['content'] ?? data['body'];
+          if (content != null && content.isNotEmpty) return content;
         }
       } catch (e) {
-        debugPrint('[ClawHubService] 获取技能内容失败: $e');
+        debugPrint('[ClawHubService] Gateway 获取失败: $e，尝试直连...');
       }
     }
     
-    // 不再使用硬编码内容，返回 null 让调用方使用 assets 预置技能
-    debugPrint('[ClawHubService] 无法获取技能内容: $slug，请使用预置技能');
+    // 直连 clawhub.com 获取原始 SKILL.md 内容
+    try {
+      // 尝试 GitHub raw（clawhub 技能托管在 GitHub）
+      final urls = [
+        'https://raw.githubusercontent.com/openclaw/skills/main/skills/$slug/SKILL.md',
+        'https://clawhub.com/api/skills/$slug/raw',
+        'https://clawhub.com/skills/$slug',
+      ];
+      
+      for (final url in urls) {
+        try {
+          debugPrint('[ClawHubService] 尝试获取: $url');
+          final response = await http.get(
+            Uri.parse(url),
+            headers: {
+              'User-Agent': 'LittleZiXia/1.0',
+              'Accept': 'text/markdown, text/plain, */*',
+            },
+          ).timeout(const Duration(seconds: 10));
+          
+          if (response.statusCode == 200) {
+            final body = utf8.decode(response.bodyBytes).trim();
+            // 验证是有效的 SKILL.md（包含 frontmatter）
+            if (body.startsWith('---') && body.length > 20) {
+              debugPrint('[ClawHubService] ✅ 获取成功: $slug (${body.length} chars)');
+              return body;
+            }
+          }
+        } catch (_) {
+          continue;
+        }
+      }
+    } catch (e) {
+      debugPrint('[ClawHubService] 直连获取失败: $e');
+    }
+    
+    debugPrint('[ClawHubService] 所有方式均失败: $slug');
     return null;
   }
 
