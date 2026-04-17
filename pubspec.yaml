@@ -1,4 +1,4 @@
-name: little_zixia
+﻿name: little_zixia
 description: LittleZiXia - Personal AI Assistant Mobile Client
 version: 1.0.124+144
 
@@ -78,15 +78,16 @@ flutter:
   assets:
     - assets/config.json
     - assets/logo_zixia_extreme_white.jpg
-    # L1 鍩虹鎶€鑳?    - assets/skills/weather/SKILL.md
+    # L1 基础技能
+    - assets/skills/weather/SKILL.md
     - assets/skills/time/SKILL.md
     - assets/skills/calculator/SKILL.md
     - assets/skills/random/SKILL.md
     - assets/skills/joke/SKILL.md
     - assets/skills/web_search/SKILL.md
     - assets/skills/translate/SKILL.md
-    # L2 鑳藉姏鎶€鑳?    - assets/skills/camera/SKILL.md
-    - assets/skills/photo_library/SKILL.md
+    # L2 能力技能
+    - assets/skills/camera/SKILL.md
     - assets/skills/location/SKILL.md
     - assets/skills/notification/SKILL.md
     - assets/skills/nearby_search/SKILL.md
@@ -103,7 +104,8 @@ flutter:
     - assets/skills/nearby_gas_stations/SKILL.md
     - assets/skills/nearby_hospitals/SKILL.md
     - assets/skills/distance_to/SKILL.md
-    # 浼犳劅鍣?杩愬姩鎶€鑳?    - assets/skills/shake_detection/SKILL.md
+    # 传感器+运动技能
+    - assets/skills/shake_detection/SKILL.md
     - assets/skills/step_counter/SKILL.md
     - assets/skills/ambient_light/SKILL.md
     - assets/skills/compass/SKILL.md
@@ -121,12 +123,14 @@ flutter:
     - assets/skills/brightness_control/SKILL.md
     - assets/skills/orientation_control/SKILL.md
     - assets/skills/sensor_reader/SKILL.md
-    # L3 宸ュ叿鎶€鑳?    - assets/skills/shell/SKILL.md
+    # L3 工具技能
+    - assets/skills/shell/SKILL.md
     - assets/skills/screenshot/SKILL.md
     - assets/skills/battery_status/SKILL.md
     - assets/skills/flashlight/SKILL.md
     - assets/skills/qr_code/SKILL.md
     - assets/skills/voice_input/SKILL.md
     - assets/skills/sensor_data/SKILL.md
-    # L4 杩滅▼鎶€鑳?    - assets/skills/remote_command/SKILL.md
+    # L4 远程技能
+    - assets/skills/remote_command/SKILL.md
 

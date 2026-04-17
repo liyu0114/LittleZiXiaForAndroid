@@ -268,7 +268,22 @@ class AgentLoopServiceV2 extends ChangeNotifier {
       }
       
       if (callsList.isEmpty) {
-        // 没有工具调用 → 任务完成
+        // 没有工具调用 → 检查是否因为缺少信息/工具而放弃
+        if (_looksLikeGivingUp(aiContent) && _hasSkillHub) {
+          // LLM 在向用户要信息而不是用工具获取 → 引导它去 SkillHub 找工具
+          debugPrint('[AgentLoopV2] ⚠️ LLM 放弃了，尝试引导搜索技能...');
+          messages.add(ChatMessage(
+            role: MessageRole.user,
+            content: '你刚才没有调用任何工具就直接回复了。'
+                '请检查可用工具列表，看看有没有能帮你完成任务的工具。'
+                '如果现有工具不够，请调用 skill_hub_search 搜索你可能需要的技能，'
+                '然后用 skill_hub_install 安装它。'
+                '不要向用户要信息——主动用工具获取！',
+          ));
+          continue; // 继续循环，给 LLM 另一次机会
+        }
+
+        // 真正完成任务
         _state = AgentState.completed;
         notifyListeners();
         debugPrint('[AgentLoopV2] ✓ 任务完成 (迭代 $_iteration)');
@@ -570,6 +585,43 @@ class AgentLoopServiceV2 extends ChangeNotifier {
         }
       }
     }
+  }
+
+  // ==================== 智能兜底：检测 LLM 是否在"放弃" ====================
+
+  /// 是否有 SkillHub 搜索和安装工具
+  bool get _hasSkillHub =>
+      _tools.containsKey('skill_hub_search') && _tools.containsKey('skill_hub_install');
+
+  /// 检测 LLM 回复是否像是在"放弃"（向用户要信息而不是用工具获取）
+  bool _looksLikeGivingUp(String content) {
+    if (content.isEmpty) return false;
+    final lower = content.toLowerCase();
+
+    // 中文信号词：向用户要信息
+    final giveUpPatterns = [
+      '请告诉我',
+      '请问你',
+      '你能告诉我',
+      '请提供',
+      '需要知道',
+      '需要您',
+      '你能说',
+      '请说明',
+      '我无法',
+      '我没有',
+      '我需要你',
+      '我缺少',
+      '如果你能',
+      'which city',
+      'please tell',
+      'can you tell',
+      'please provide',
+      'i need to know',
+      'i cannot',
+    ];
+
+    return giveUpPatterns.any((p) => lower.contains(p));
   }
 
   // ==================== System Prompt ====================
