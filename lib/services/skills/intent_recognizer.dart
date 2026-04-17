@@ -1,7 +1,7 @@
 // 意图识别服务
 //
 // 使用 LLM 识别用户意图并提取 Skill 参数
-// v2: 动态从 SkillManager 获取可用技能列表
+// v3: quickDetect 从 SkillManager 动态获取技能 + 关键词自动匹配
 
 import 'dart:convert';
 import '../llm/llm_base.dart';
@@ -204,10 +204,87 @@ $skillsDescription
 
   /// 快速检测（不使用 LLM，用于简单场景和回退）
   ///
-  /// 这个方法现在也从 SkillManager 动态获取技能来匹配
+  /// v3: 先从 SkillManager 动态匹配技能名/描述关键词，
+  ///     再走内置的关键词→参数提取逻辑
   static IntentResult quickDetect(String userMessage) {
     final lowerMessage = userMessage.toLowerCase();
 
+    // 第一阶段：从 SkillManager 动态匹配
+    final dynamicMatch = _dynamicSkillMatch(lowerMessage);
+    if (dynamicMatch != null && dynamicMatch.confidence >= 0.7) {
+      return dynamicMatch;
+    }
+
+    // 第二阶段：内置关键词匹配（带参数提取）
+    // 这些是高频技能的特殊参数提取逻辑
+    return _builtInKeywordMatch(userMessage, lowerMessage);
+  }
+
+  /// 从 SkillManager 动态匹配技能
+  /// 用技能 ID、名称、描述中的关键词与用户消息匹配
+  static IntentResult? _dynamicSkillMatch(String lowerMessage) {
+    try {
+      final skillManager = SkillManager();
+      final skills = skillManager.availableSkills;
+
+      IntentResult? bestMatch;
+      double bestConfidence = 0;
+
+      for (final skill in skills) {
+        final id = skill.id.toLowerCase();
+        final name = skill.metadata.name.toLowerCase();
+        final desc = skill.metadata.description.toLowerCase();
+
+        // 从技能 ID 和名称中提取关键词
+        final keywords = <String>{
+          id,
+          ...id.split('_'),
+          ...id.split('-'),
+          ...name.split(RegExp(r'[\s\-_]+')),
+        }..removeWhere((k) => k.length < 2); // 过滤太短的
+
+        double score = 0;
+        for (final keyword in keywords) {
+          if (lowerMessage.contains(keyword)) {
+            // 精确匹配 ID/名称 → 高分
+            score = maxScore(score, 0.7);
+          }
+        }
+
+        // 描述中的关键词匹配（权重较低）
+        final descWords = desc.split(RegExp(r'[\s,，。、]+'));
+        int descHits = 0;
+        for (final word in descWords) {
+          if (word.length >= 2 && lowerMessage.contains(word)) {
+            descHits++;
+          }
+        }
+        if (descHits >= 2) {
+          score = maxScore(score, 0.6);
+        } else if (descHits >= 1) {
+          score = maxScore(score, 0.4);
+        }
+
+        if (score > bestConfidence) {
+          bestConfidence = score;
+          bestMatch = IntentResult(
+            skillId: skill.id,
+            params: {},
+            confidence: score,
+          );
+        }
+      }
+
+      return bestMatch;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static double maxScore(double a, double b) => a > b ? a : b;
+
+  /// 内置关键词匹配（保留参数提取能力）
+  static IntentResult _builtInKeywordMatch(String userMessage, String lowerMessage) {
     // 天气
     if (lowerMessage.contains('天气') ||
         lowerMessage.contains('weather') ||

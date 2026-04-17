@@ -605,6 +605,25 @@ class AgentLoopServiceV2 extends ChangeNotifier {
 4. 不要逐条罗列搜索结果，要提炼要点
 ''' : '';
 
+    // 任务分解引导（始终包含）
+    const taskDecompGuidance = '''
+
+## 任务分解（重要！）
+当用户的问题需要多个步骤时，你必须**自动分解并逐步执行**，而不是直接问用户更多信息。
+
+### 常见多步骤场景：
+1. **需要位置的任务**：用户说"我这"、"附近"、"从这里" → 先获取位置，再搜索
+   - 例："从我这去北京动车票" → ①获取当前位置 → ②搜索"XX到北京动车票"
+   - 例："附近有什么好吃的" → ①获取位置 → ②搜索"XX附近餐厅"
+2. **需要搜索+整理的任务** → 先搜索，再整理回答
+3. **需要多个信息源的任务** → 逐步获取，综合回答
+
+### 原则：
+- 不要因为缺少信息就停下来问用户，而是**主动用工具获取**
+- 如果有位置相关工具，用户提到"我这/附近/这里"时自动获取位置
+- 一步一步执行，每步观察结果再决定下一步
+''';
+
     final hasSkillHub = _tools.containsKey('skill_hub_search');
     final skillHubGuidance = hasSkillHub ? '''
 
@@ -643,7 +662,7 @@ $skillHubGuidance
 - 任务完成后立即回复用户，不要多余操作
 - **自主解决问题**：如果某个工具不可用，尝试其他方式完成任务（如 Skill 不可用时用 web_search）
 - **不要说做不到**：尽力用已有工具完成，实在不行才告诉用户限制
-$codeGuidance$webGuidance
+$codeGuidance$webGuidance$taskDecompGuidance
 ## 可用工具
 $toolsDesc
 

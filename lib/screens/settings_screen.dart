@@ -120,7 +120,7 @@ class SettingsScreen extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.info_outline),
                 title: const Text('小紫霞'),
-                subtitle: const Text('版本 1.0.121 (Build 141)'),
+                subtitle: const Text('版本 1.0.124 (Build 144)'),
                 onTap: () => _showAboutDialog(context),
               ),
               ListTile(
@@ -130,7 +130,7 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => showLicensePage(
                   context: context,
                   applicationName: '小紫霞',
-                  applicationVersion: '1.0.121 (Build 141)',
+                  applicationVersion: '1.0.124 (Build 144)',
                 ),
               ),
               ListTile(
@@ -263,7 +263,7 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (context) => AboutDialog(
         applicationName: '小紫霞',
-        applicationVersion: '1.0.121 (Build 141)',
+        applicationVersion: '1.0.124 (Build 144)',
         applicationIcon:
             const Text('💜', style: TextStyle(fontSize: 48)),
         children: const [
@@ -332,3 +332,5 @@ class SettingsScreen extends StatelessWidget {
     }
   }
 }
+
+

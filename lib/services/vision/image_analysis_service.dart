@@ -156,7 +156,7 @@ class ImageAnalysisService {
     }
   }
 
-  /// 使用通义千问 Vision API 分析
+  /// 使用通义千问 Vision API 分析（OpenAI 兼容接口）
   Future<ImageAnalysisResult?> _analyzeWithQwen(
     String base64,
     String? prompt,
@@ -164,30 +164,29 @@ class ImageAnalysisService {
   ) async {
     try {
       final response = await http.post(
-        Uri.parse(baseUrl ?? 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'),
+        Uri.parse(baseUrl ?? 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $apiKey',
         },
         body: jsonEncode({
-          'model': 'qwen-vl-max',
-          'input': {
-            'messages': [
-              {
-                'role': 'user',
-                'content': [
-                  {'image': 'data:image/jpeg;base64,$base64'},
-                  {'text': prompt ?? '请描述这张图片'},
-                ],
-              },
-            ],
-          },
+          'model': 'qwen3.6-plus',  // Qwen3.6-Plus 支持文本+图像+视频
+          'messages': [
+            {
+              'role': 'user',
+              'content': [
+                {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,$base64'}},
+                {'type': 'text', 'text': prompt ?? '请描述这张图片'},
+              ],
+            },
+          ],
+          'max_tokens': maxTokens,
         }),
       ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final content = data['output']?['choices']?[0]?['message']?['content'] ?? '';
+        final content = data['choices']?[0]?['message']?['content'] ?? '';
         
         return ImageAnalysisResult(
           description: content,
@@ -251,7 +250,7 @@ class ImageAnalysisService {
     }
   }
 
-  /// 使用通义千问分析 URL 图像
+  /// 使用通义千问分析 URL 图像（OpenAI 兼容接口）
   Future<ImageAnalysisResult?> _analyzeUrlWithQwen(
     String url,
     String? prompt,
@@ -259,30 +258,29 @@ class ImageAnalysisService {
   ) async {
     try {
       final response = await http.post(
-        Uri.parse(baseUrl ?? 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'),
+        Uri.parse(baseUrl ?? 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $apiKey',
         },
         body: jsonEncode({
-          'model': 'qwen-vl-max',
-          'input': {
-            'messages': [
-              {
-                'role': 'user',
-                'content': [
-                  {'image': url},
-                  {'text': prompt ?? '请描述这张图片'},
-                ],
-              },
-            ],
-          },
+          'model': 'qwen3.6-plus',  // Qwen3.6-Plus 支持文本+图像+视频
+          'messages': [
+            {
+              'role': 'user',
+              'content': [
+                {'type': 'image_url', 'image_url': {'url': url}},
+                {'type': 'text', 'text': prompt ?? '请描述这张图片'},
+              ],
+            },
+          ],
+          'max_tokens': maxTokens,
         }),
       ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final content = data['output']?['choices']?[0]?['message']?['content'] ?? '';
+        final content = data['choices']?[0]?['message']?['content'] ?? '';
         
         return ImageAnalysisResult(
           description: content,

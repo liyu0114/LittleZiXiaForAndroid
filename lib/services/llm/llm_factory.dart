@@ -89,8 +89,9 @@ const List<ProviderInfo> availableProviders = [
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     apiKeyPlaceholder: 'sk-...',
     defaultModels: [
-      'qwen-max', 'qwen-plus', 'qwen-turbo',
-      'qwen-vl-max', 'qwen-vl-plus',  // 视觉模型（支持图片）
+      'qwen3-max', 'qwen3.6-plus', 'qwen3.5-flash',
+      'qwen-plus', 'qwen-turbo',  // 旧模型（2026-07-13下线）
+      'qwen-vl-max', 'qwen-vl-plus',  // 旧视觉模型（2026-07-13下线）
     ],
   ),
   ProviderInfo(

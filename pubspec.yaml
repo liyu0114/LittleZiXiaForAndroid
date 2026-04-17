@@ -1,6 +1,6 @@
 name: little_zixia
 description: LittleZiXia - Personal AI Assistant Mobile Client
-version: 1.0.122+142
+version: 1.0.124+144
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -19,41 +19,45 @@ dependencies:
   web_socket_channel: ^2.4.0
   permission_handler: ^11.0.1
   
-  # 澶氭ā鎬佹敮鎸侊紙绋冲畾鐗堟湰锛?  image_picker: ^1.0.7            # 鍥惧儚鍜岃棰戦€夋嫨
-  file_picker: ^8.0.0+1           # 鏂囦欢閫夋嫨
+  # 澶氭ā鎬佹敮鎸?  image_picker: ^1.0.7
+  file_picker: ^8.0.0+1
   path_provider: ^2.1.2
   flutter_tts: ^4.0.2
   
-  # L2 澧炲己妯″紡
-  geolocator: ^13.0.2             # 浣嶇疆鏈嶅姟
-  flutter_local_notifications: ^17.2.4  # 鏈湴閫氱煡
-  speech_to_text: ^7.0.0         # 璇煶璇嗗埆
-  local_auth: ^2.3.0             # 鐢熺墿璇嗗埆
+  # L2 鑳藉姏
+  geolocator: ^13.0.2
+  flutter_local_notifications: ^17.2.4
+  speech_to_text: ^7.0.0
+  local_auth: ^2.3.0
   
-  # 纭欢鏈嶅姟
-  battery_plus: ^6.0.3            # 鐢垫睜鐘舵€?  connectivity_plus: ^6.0.5       # 缃戠粶鐘舵€?  screen_brightness: ^2.1.0      # 灞忓箷浜害
-  volume_controller: ^2.0.7      # 闊抽噺鎺у埗
-  sensors_plus: ^6.0.1           # 浼犳劅鍣?  
-  # 鍋ュ悍涓庢椿鍔?  pedometer: ^4.0.2              # 姝ユ暟璁℃暟
-  # activity_recognition_flutter: ^4.0.2  # 娲诲姩璇嗗埆锛堟湁鍏煎鎬ч棶棰橈級
-  # light: ^3.0.1                # 鐜鍏夌嚎锛堟湁鍏煎鎬ч棶棰橈級
-  flutter_compass: ^0.8.0        # 鎸囧崡閽?  
-  # 鍒涙柊鍔熻兘
-  flutter_blue_plus: ^1.32.12    # 钃濈墮鎵弿
-  flutter_nfc_kit: ^3.5.2        # NFC 璇诲彇
-  qr_flutter: ^4.1.0             # 浜岀淮鐮佺敓鎴?  mobile_scanner: ^6.0.2         # 浜岀淮鐮佹壂鎻?  
-  # L3 绯荤粺妯″紡
-  process_run: ^1.2.2             # Shell 鍛戒护鎵ц
+  # 璁惧鑳藉姏
+  battery_plus: ^6.0.3
+  connectivity_plus: ^6.0.5
+  screen_brightness: ^2.1.0
+  volume_controller: ^2.0.7
+  sensors_plus: ^6.0.1
   
-  # Markdown 缂栬緫澧炲己
-  highlight: ^0.7.0               # 浠ｇ爜璇硶楂樹寒
-  flutter_markdown: ^0.6.14       # Markdown 娓叉煋
-  markdown: ^7.0.0                # Markdown 瑙ｆ瀽
-  share_plus: ^10.0.0             # 绯荤粺鍒嗕韩
+  # 杩愬姩鍋ュ悍
+  pedometer: ^4.0.2
+  flutter_compass: ^0.8.0
+  
+  # 杩戝満閫氫俊
+  flutter_blue_plus: ^1.32.12
+  flutter_nfc_kit: ^3.5.2
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^6.0.2
+  
+  # L3 宸ュ叿
+  process_run: ^1.2.2
+  
+  # Markdown 鏀寔
+  highlight: ^0.7.0
+  flutter_markdown: ^0.7.7+1
+  markdown: ^7.3.1
+  share_plus: ^10.0.0
   webview_flutter: ^4.13.1
   webview_flutter_android: ^4.10.15
-  mobile_scanner: ^7.2.0
-  image_picker: ^1.2.1
+  image_picker: 1.0.7
 
 dev_dependencies:
   flutter_test:
@@ -81,7 +85,7 @@ flutter:
     - assets/skills/joke/SKILL.md
     - assets/skills/web_search/SKILL.md
     - assets/skills/translate/SKILL.md
-    # L2 澧炲己鎶€鑳?    - assets/skills/camera/SKILL.md
+    # L2 鑳藉姏鎶€鑳?    - assets/skills/camera/SKILL.md
     - assets/skills/photo_library/SKILL.md
     - assets/skills/location/SKILL.md
     - assets/skills/notification/SKILL.md
@@ -92,13 +96,14 @@ flutter:
     - assets/skills/greeting/SKILL.md
     - assets/skills/quick_note/SKILL.md
     - assets/skills/holiday/SKILL.md
-    # 浣嶇疆鐩稿叧鎶€鑳?    - assets/skills/local_weather/SKILL.md
+    # 浣嶇疆鐩稿叧
+    - assets/skills/local_weather/SKILL.md
     - assets/skills/current_location/SKILL.md
     - assets/skills/nearby_restaurants/SKILL.md
     - assets/skills/nearby_gas_stations/SKILL.md
     - assets/skills/nearby_hospitals/SKILL.md
     - assets/skills/distance_to/SKILL.md
-    # 绉诲姩绔壒鏈夋妧鑳斤紙浼犳劅鍣?纭欢锛?    - assets/skills/shake_detection/SKILL.md
+    # 浼犳劅鍣?杩愬姩鎶€鑳?    - assets/skills/shake_detection/SKILL.md
     - assets/skills/step_counter/SKILL.md
     - assets/skills/ambient_light/SKILL.md
     - assets/skills/compass/SKILL.md
@@ -116,7 +121,7 @@ flutter:
     - assets/skills/brightness_control/SKILL.md
     - assets/skills/orientation_control/SKILL.md
     - assets/skills/sensor_reader/SKILL.md
-    # L3 绯荤粺鎶€鑳?    - assets/skills/shell/SKILL.md
+    # L3 宸ュ叿鎶€鑳?    - assets/skills/shell/SKILL.md
     - assets/skills/screenshot/SKILL.md
     - assets/skills/battery_status/SKILL.md
     - assets/skills/flashlight/SKILL.md
@@ -124,3 +129,4 @@ flutter:
     - assets/skills/voice_input/SKILL.md
     - assets/skills/sensor_data/SKILL.md
     # L4 杩滅▼鎶€鑳?    - assets/skills/remote_command/SKILL.md
+
