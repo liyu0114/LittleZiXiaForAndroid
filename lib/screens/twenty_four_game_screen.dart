@@ -532,7 +532,8 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
     final isMyRush = _room?.rushingPlayerId?.startsWith('player_') == true;
     final isFinished = _room?.state == GameState.finished;
     
-    return Column(
+    return SafeArea(
+      child: Column(
       children: [
         // 计时器
         Container(
@@ -582,174 +583,180 @@ class _TwentyFourGameScreenState extends State<TwentyFourGameScreen> {
           ),
         ),
         
-        // 数字卡片（游戏结束时仍然显示）
-        if (_numbers.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: _numbers.map((num) => _buildNumberCard(num)).toList(),
-            ),
-          ),
-        
-        // 消息提示
-        if (_message != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Card(
-              color: _message!.contains('正确') || _message!.contains('获胜')
-                  ? Colors.green.shade100
-                  : _message!.contains('错误') || _message!.contains('超时') || _message!.contains('无效')
-                      ? Colors.red.shade100
-                      : Colors.orange.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(_message!, style: const TextStyle(fontSize: 16), textAlign: TextAlign.center),
-              ),
-            ),
-          ),
-        
-        // 表达式显示（游戏结束时显示最终答案）
-        if (isFinished && _room?.winnerAnswer != null)
-          Container(
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.green.shade50,
-              border: Border.all(color: Colors.green, width: 2),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              '${_room!.winnerAnswer} = 24',
-              style: const TextStyle(
-                fontSize: 28,
-                fontFamily: 'monospace',
-                fontWeight: FontWeight.bold,
-                color: Colors.green,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          )
-        else if (!isFinished && (isRushing || isMyRush || _expression.isNotEmpty))
-          Container(
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              border: Border.all(color: Theme.of(context).colorScheme.primary),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              _expression.isEmpty ? '请输入表达式' : _expression,
-              style: TextStyle(
-                fontSize: 24,
-                fontFamily: 'monospace',
-                color: _expression.isEmpty ? Colors.grey : null,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        
-        // 自定义小键盘（只在抢答且轮到自己时显示）
-        if (!isFinished && isRushing && isMyRush)
-          Expanded(
-            child: _buildKeypad(true),
-          )
-        // 如果不是抢答状态，显示空白占位
-        else if (!isFinished && !isRushing)
-          const Spacer(),
-        
-        // 抢答按钮
-        if (_room?.state == GameState.playing)
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: SizedBox(
-              width: double.infinity,
-              height: 56,
-              child: FilledButton.icon(
-                onPressed: _rush,
-                icon: const Icon(Icons.pan_tool, size: 28),
-                label: const Text('抢答！', style: TextStyle(fontSize: 20)),
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                ),
-              ),
-            ),
-          ),
-        
-        // 获胜者信息（游戏结束时显示）
-        if (isFinished)
-          Padding(
-            padding: const EdgeInsets.all(16),
+        // 中间区域（可滚动）
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.only(bottom: 16),
             child: Column(
               children: [
-                if (_room?.winnerId != null) ...[
-                  Card(
-                    color: Colors.green.shade100,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.emoji_events, color: Colors.amber, size: 32),
-                          const SizedBox(width: 8),
-                          Text(
-                            '${_room!.players.firstWhere((p) => p.id == _room!.winnerId, orElse: () => _room!.players.first).name} 获胜！',
-                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                // 数字卡片（游戏结束时仍然显示）
+                if (_numbers.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: _numbers.map((num) => _buildNumberCard(num)).toList(),
+                    ),
+                  ),
+                
+                // 消息提示
+                if (_message != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Card(
+                      color: _message!.contains('正确') || _message!.contains('获胜')
+                          ? Colors.green.shade100
+                          : _message!.contains('错误') || _message!.contains('超时') || _message!.contains('无效')
+                              ? Colors.red.shade100
+                              : Colors.orange.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(_message!, style: const TextStyle(fontSize: 16), textAlign: TextAlign.center),
+                      ),
+                    ),
+                  ),
+                
+                // 表达式显示（游戏结束时显示最终答案）
+                if (isFinished && _room?.winnerAnswer != null)
+                  Container(
+                    margin: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      border: Border.all(color: Colors.green, width: 2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '${_room!.winnerAnswer} = 24',
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                else if (!isFinished && (isRushing || isMyRush || _expression.isNotEmpty))
+                  Container(
+                    margin: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Theme.of(context).colorScheme.primary),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _expression.isEmpty ? '请输入表达式' : _expression,
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontFamily: 'monospace',
+                        color: _expression.isEmpty ? Colors.grey : null,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                
+                // 自定义小键盘（只在抢答且轮到自己时显示）
+                if (!isFinished && isRushing && isMyRush)
+                  _buildKeypad(true),
+                
+                // 抢答按钮
+                if (_room?.state == GameState.playing)
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: FilledButton.icon(
+                        onPressed: _rush,
+                        icon: const Icon(Icons.pan_tool, size: 28),
+                        label: const Text('抢答！', style: TextStyle(fontSize: 20)),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                        ),
+                      ),
+                    ),
+                  ),
+                
+                // 获胜者信息（游戏结束时显示）
+                if (isFinished)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      children: [
+                        if (_room?.winnerId != null) ...[
+                          Card(
+                            color: Colors.green.shade100,
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.emoji_events, color: Colors.amber, size: 32),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '${_room!.players.firstWhere((p) => p.id == _room!.winnerId, orElse: () => _room!.players.first).name} 获胜！',
+                                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ] else ...[
+                          Card(
+                            color: Colors.orange.shade100,
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.timer_off, color: Colors.orange, size: 32),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    '时间到！无人答对',
+                                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ],
-                      ),
-                    ),
-                  ),
-                ] else ...[
-                  Card(
-                    color: Colors.orange.shade100,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.timer_off, color: Colors.orange, size: 32),
-                          const SizedBox(width: 8),
-                          const Text(
-                            '时间到！无人答对',
-                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        const SizedBox(height: 8),
+
+                        // 查看答案按钮
+                        if (_room?.allSolutions.isNotEmpty == true)
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: OutlinedButton.icon(
+                              onPressed: _showSolutions,
+                              icon: const Icon(Icons.lightbulb_outline),
+                              label: Text('查看答案 (${_room!.allSolutions.length}种解法)'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.orange.shade800,
+                              ),
+                            ),
                           ),
-                        ],
-                      ),
+                        const SizedBox(height: 8),
+
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: FilledButton.icon(
+                            onPressed: _restart,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('再来一局'),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-                const SizedBox(height: 16),
-
-                // 查看答案按钮
-                if (_room?.allSolutions.isNotEmpty == true)
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: OutlinedButton.icon(
-                      onPressed: _showSolutions,
-                      icon: const Icon(Icons.lightbulb_outline),
-                      label: Text('查看答案 (${_room!.allSolutions.length}种解法)'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.orange.shade800,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 8),
-
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: FilledButton.icon(
-                    onPressed: _restart,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('再来一局'),
-                  ),
-                ),
               ],
             ),
           ),
+        ),
       ],
+      ),
     );
   }
   

@@ -384,6 +384,207 @@ class _Parser {
   }
 }
 
+// ==================== 协商工具 ====================
+
+/// 向用户请求帮助 — 当 Agent 遇到无法独立解决的问题时
+/// Agent 应该分析问题、提出方案选项，让用户选择
+class AskUserTool extends AgentTool {
+  @override
+  String get name => 'ask_user';
+
+  @override
+  String get description =>
+      '当你遇到无法独立解决的问题时，向用户说明情况并请求帮助。'
+      '你应该：1) 说明遇到的问题 2) 分析可能的原因 3) 提出几个解决方案供用户选择 4) 说明你需要用户提供什么信息。'
+      '这不是放弃——是和用户协作解决问题。';
+
+  @override
+  Map<String, dynamic> get parametersSchema => {
+    'type': 'object',
+    'properties': {
+      'problem': {
+        'type': 'string',
+        'description': '遇到的问题描述',
+      },
+      'analysis': {
+        'type': 'string',
+        'description': '问题原因分析',
+      },
+      'options': {
+        'type': 'array',
+        'items': {'type': 'string'},
+        'description': '建议的解决方案列表',
+      },
+      'needed_info': {
+        'type': 'array',
+        'items': {'type': 'string'},
+        'description': '需要用户提供的信息',
+      },
+    },
+    'required': ['problem', 'options'],
+  };
+
+  @override
+  Future<AgentToolResult> execute(Map<String, dynamic> arguments) async {
+    final problem = arguments['problem'] as String? ?? '未知问题';
+    final analysis = arguments['analysis'] as String?;
+    final options = (arguments['options'] as List?)?.cast<String>() ?? [];
+    final neededInfo = (arguments['needed_info'] as List?)?.cast<String>() ?? [];
+
+    final buffer = StringBuffer();
+    buffer.writeln('🤔 我遇到了一个问题：$problem');
+    if (analysis != null && analysis.isNotEmpty) {
+      buffer.writeln('\n💡 分析：$analysis');
+    }
+    if (options.isNotEmpty) {
+      buffer.writeln('\n📋 建议方案：');
+      for (int i = 0; i < options.length; i++) {
+        buffer.writeln('  ${i + 1}. ${options[i]}');
+      }
+    }
+    if (neededInfo.isNotEmpty) {
+      buffer.writeln('\n🙋 需要你提供：');
+      for (final info in neededInfo) {
+        buffer.writeln('  - $info');
+      }
+    }
+    buffer.writeln('\n请回复你的选择或补充信息，我会继续执行。');
+
+    return AgentToolResult.success(buffer.toString());
+  }
+}
+
+// ==================== 保存为 Skill 工具 ====================
+
+/// 从成功的任务执行路径中自动生成新 Skill
+class SaveAsSkillTool extends AgentTool {
+  final SkillManager _skillManager;
+
+  SaveAsSkillTool(this._skillManager);
+
+  @override
+  String get name => 'save_as_skill';
+
+  @override
+  String get description =>
+      '当你成功完成一个复杂任务后，把解决路径保存为可复用的 Skill。'
+      '下次遇到类似问题时可以直接调用。'
+      '请在任务完成后主动调用这个工具，记录成功的解决流程。';
+
+  @override
+  Map<String, dynamic> get parametersSchema => {
+    'type': 'object',
+    'properties': {
+      'name': {
+        'type': 'string',
+        'description': 'Skill 名称，如 "查火车票"、"compare_prices"',
+      },
+      'description': {
+        'type': 'string',
+        'description': 'Skill 的一句话描述',
+      },
+      'trigger_patterns': {
+        'type': 'array',
+        'items': {'type': 'string'},
+        'description': '触发关键词列表，如 ["火车票", "高铁", "票价"]',
+      },
+      'steps': {
+        'type': 'array',
+        'items': {'type': 'object', 'properties': {
+          'tool': {'type': 'string', 'description': '调用的工具名'},
+          'purpose': {'type': 'string', 'description': '这一步的目的'},
+          'params_template': {'type': 'string', 'description': '参数模板，用 {变量名} 表示动态部分'},
+        }},
+        'description': '解决步骤列表',
+      },
+      'example_input': {
+        'type': 'string',
+        'description': '用户原始输入示例',
+      },
+      'example_output': {
+        'type': 'string',
+        'description': '最终输出示例（截取前200字）',
+      },
+    },
+    'required': ['name', 'description', 'steps'],
+  };
+
+  @override
+  Future<AgentToolResult> execute(Map<String, dynamic> arguments) async {
+    final name = arguments['name'] as String? ?? 'unnamed_skill';
+    final description = arguments['description'] as String? ?? '';
+    final triggerPatterns = (arguments['trigger_patterns'] as List?)?.cast<String>() ?? [];
+    final steps = (arguments['steps'] as List?) ?? [];
+    final exampleInput = arguments['example_input'] as String? ?? '';
+    final exampleOutput = arguments['example_output'] as String? ?? '';
+
+    // 生成 SKILL.md 格式的内容
+    final skillId = name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9_\u4e00-\u9fff]'), '_');
+
+    final buffer = StringBuffer();
+    buffer.writeln('---');
+    buffer.writeln('name: $name');
+    buffer.writeln('description: $description');
+    if (triggerPatterns.isNotEmpty) {
+      buffer.writeln('triggers: ${triggerPatterns.join(", ")}');
+    }
+    buffer.writeln('auto_generated: true');
+    buffer.writeln('---');
+    buffer.writeln();
+    buffer.writeln('# $name');
+    buffer.writeln();
+    buffer.writeln('$description');
+    buffer.writeln();
+
+    if (steps.isNotEmpty) {
+      buffer.writeln('## 解决步骤');
+      buffer.writeln();
+      for (int i = 0; i < steps.length; i++) {
+        final step = steps[i] as Map<String, dynamic>;
+        final tool = step['tool'] ?? 'unknown';
+        final purpose = step['purpose'] ?? '';
+        final paramsTemplate = step['params_template'] ?? '';
+        buffer.writeln('### 步骤 ${i + 1}: $purpose');
+        buffer.writeln('- 工具: `$tool`');
+        if (paramsTemplate.isNotEmpty) {
+          buffer.writeln('- 参数模板: `$paramsTemplate`');
+        }
+        buffer.writeln();
+      }
+    }
+
+    if (exampleInput.isNotEmpty) {
+      buffer.writeln('## 示例');
+      buffer.writeln();
+      buffer.writeln('**输入**: $exampleInput');
+      buffer.writeln();
+      if (exampleOutput.isNotEmpty) {
+        final truncated = exampleOutput.length > 200
+            ? '${exampleOutput.substring(0, 200)}...'
+            : exampleOutput;
+        buffer.writeln('**输出**: $truncated');
+      }
+    }
+
+    // 保存到本地 skill 存储
+    try {
+      final skillContent = buffer.toString();
+      // 通过 SkillManager 保存
+      final skillDir = '${_skillManager.skillsPath}/learned';
+      await _skillManager.saveLearnedSkill(skillId, skillContent);
+
+      debugPrint('[SaveAsSkill] 已保存 Skill: $skillId');
+      return AgentToolResult.success(
+        '✅ 已保存为新 Skill: $name ($skillId)\n'
+        '下次遇到类似问题时可以直接使用。',
+      );
+    } catch (e) {
+      debugPrint('[SaveAsSkill] 保存失败: $e');
+      return AgentToolResult.fail('保存 Skill 失败: $e');
+    }
+  }
+}
+
 // ==================== 工具注册辅助 ====================
 
 /// 从 Skill 系统自动注册所有工具到 Agent Loop
@@ -407,4 +608,10 @@ void registerBaseTools(AgentLoopServiceV2 agentLoop) {
   agentLoop.registerTool(FinishTool());
   agentLoop.registerTool(CurrentTimeTool());
   agentLoop.registerTool(CalculatorTool());
+  agentLoop.registerTool(AskUserTool());  // 协商工具
+}
+
+/// 注册 Skill 保存工具（需要 SkillManager）
+void registerSkillSaveTool(AgentLoopServiceV2 agentLoop, SkillManager skillManager) {
+  agentLoop.registerTool(SaveAsSkillTool(skillManager));
 }

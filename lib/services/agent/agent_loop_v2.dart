@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../llm/llm_base.dart';
 import '../memory/memory_service.dart';
+import 'task_state_service.dart';
 
 /// Agent 状态
 enum AgentState {
@@ -100,6 +101,7 @@ class AgentLoopServiceV2 extends ChangeNotifier {
   // 依赖
   LLMProvider? _llmProvider;
   MemoryService? _memoryService;
+  final TaskStateService _taskState = TaskStateService();
 
   // 工具注册表
   final Map<String, AgentTool> _tools = {};
@@ -110,7 +112,7 @@ class AgentLoopServiceV2 extends ChangeNotifier {
   int _iteration = 0;
 
   // 配置
-  int _maxIterations = 10;
+  int _maxIterations = 15;
   int _maxApiRetries = 3;
   int _loopDetectWindow = 4;
 
@@ -164,7 +166,7 @@ class AgentLoopServiceV2 extends ChangeNotifier {
   }
 
   /// 执行任务（主入口）
-  Future<AgentResult> execute(String task) async {
+  Future<AgentResult> execute(String task, {TaskSnapshot? resumeFrom}) async {
     if (_llmProvider == null) {
       return AgentResult(success: false, content: '', error: 'LLM 未配置');
     }
@@ -182,12 +184,16 @@ class AgentLoopServiceV2 extends ChangeNotifier {
 
     try {
       // 整体超时 3 分钟
-      return await _runLoop(task).timeout(
+      return await _runLoop(task, resumeFrom: resumeFrom).timeout(
         const Duration(minutes: 3),
-        onTimeout: () {
+        onTimeout: () async {
           debugPrint('[AgentLoopV2] ⚠️ 整体超时！');
           _state = AgentState.failed;
           notifyListeners();
+          
+          // 保存失败快照，供恢复用
+          await _saveCurrentSnapshot(task, 'failed', error: '执行超时（3分钟），请简化任务或重试');
+          
           return AgentResult(
             success: false,
             content: '',
@@ -199,6 +205,10 @@ class AgentLoopServiceV2 extends ChangeNotifier {
     } catch (e) {
       _state = AgentState.failed;
       notifyListeners();
+      
+      // 保存异常快照
+      await _saveCurrentSnapshot(task, 'failed', error: 'Agent 执行失败: $e');
+      
       return AgentResult(
         success: false,
         content: '',
@@ -217,15 +227,63 @@ class AgentLoopServiceV2 extends ChangeNotifier {
 
   // ==================== 核心循环 ====================
 
-  Future<AgentResult> _runLoop(String task) async {
-    // 构建初始消息
-    final messages = <ChatMessage>[
-      ChatMessage.system(_buildSystemPrompt()),
-      ChatMessage.user(task),
-    ];
+  /// 意图预路由：通用版本，只处理位置依赖等真正需要预路由的场景
+  /// 不硬编码具体问题类型，让 LLM 自己根据可用工具决策
+  String _routeIntent(String task) {
+    final lower = task.toLowerCase();
+    final hints = <String>[];
+
+    // 位置依赖：用户提到当前位置时，提示先获取位置
+    if (lower.contains('我这') || lower.contains('附近') || lower.contains('这里') ||
+        lower.contains('当地') || lower.contains('从这') || lower.contains('本地') ||
+        lower.contains('我所在') || lower.contains('我这儿')) {
+      if (_tools.containsKey('get_location')) {
+        hints.add('[系统提示：用户提到了当前位置相关的意图，请先调用 get_location 获取位置信息，再执行后续任务。]');
+      }
+    }
+
+    if (hints.isEmpty) return task;
+    return '${hints.join('\n')}\n\n用户消息：$task';
+  }
+
+  Future<AgentResult> _runLoop(String task, {TaskSnapshot? resumeFrom}) async {
+    // 意图预路由：检测常见意图，注入工具提示
+    final routedTask = _routeIntent(task);
+
+    // 构建初始消息（支持从快照恢复）
+    final messages = <ChatMessage>[];
+    if (resumeFrom != null && resumeFrom.messages.isNotEmpty) {
+      // 从快照恢复对话历史
+      debugPrint('[AgentLoopV2] 从快照恢复: ${resumeFrom.messages.length} 条历史消息');
+      for (final msgJson in resumeFrom.messages) {
+        try {
+          messages.add(ChatMessage.fromJson(msgJson));
+        } catch (_) {
+          // 跳过无法解析的消息
+        }
+      }
+      // 注入恢复提示
+      messages.add(ChatMessage.user(
+        '[系统提示] 刚才的任务执行中断了。以下是之前收集的信息：\n'
+        '${resumeFrom.toolResults.entries.map((e) => '- ${e.key}: ${e.value}').join('\n')}\n\n'
+        '请根据已有信息继续完成用户的原始任务: ${resumeFrom.originalTask}\n'
+        '不要重复之前已经做过的步骤，直接继续。',
+      ));
+      _iteration = resumeFrom.iteration;
+    } else {
+      messages.addAll([
+        ChatMessage.system(_buildSystemPrompt()),
+        ChatMessage.user(routedTask),
+      ]);
+    }
 
     // 工具定义
     final toolDefs = _tools.values.map((t) => t.toToolDefinition()).toList();
+
+    // 任务状态追踪（用于快照保存）
+    _currentTaskId = resumeFrom?.taskId ?? DateTime.now().millisecondsSinceEpoch.toString();
+    _currentMessages = messages;
+    _currentToolResults.clear();
 
     // 循环检测
     final loopHistory = <_RoundFingerprint>[];
@@ -275,12 +333,28 @@ class AgentLoopServiceV2 extends ChangeNotifier {
           messages.add(ChatMessage(
             role: MessageRole.user,
             content: '你刚才没有调用任何工具就直接回复了。'
-                '请检查可用工具列表，看看有没有能帮你完成任务的工具。'
-                '如果现有工具不够，请调用 skill_hub_search 搜索你可能需要的技能，'
-                '然后用 skill_hub_install 安装它。'
+                '请按以下顺序尝试：\n'
+                '1. 先调用 skill_hub_search 搜索可能存在的技能\n'
+                '2. 如果找到了，用 skill_hub_install 安装\n'
+                '3. 如果没有找到合适的技能，用 web_search 搜索相关信息\n'
+                '4. 如果以上都不行，用 run_script 自己写代码解决\n'
+                '5. 如果真的搞不定，调用 ask_user 向用户说明情况并协商替代方案\n'
                 '不要向用户要信息——主动用工具获取！',
           ));
           continue; // 继续循环，给 LLM 另一次机会
+        }
+
+        // 即使没有 SkillHub，LLM 放弃时也引导它用其他工具
+        if (_looksLikeGivingUp(aiContent) && !_hasSkillHub) {
+          debugPrint('[AgentLoopV2] ⚠️ LLM 放弃了，引导使用其他工具...');
+          messages.add(ChatMessage(
+            role: MessageRole.user,
+            content: '你刚才没有调用任何工具就直接回复了。'
+                '请检查可用工具列表，用 web_search 搜索相关信息，或用 run_script 写代码解决。'
+                '如果确实无法完成，请调用 ask_user 向用户说明情况并协商替代方案。'
+                '禁止直接说"我做不到"就结束！',
+          ));
+          continue;
         }
 
         // 真正完成任务
@@ -294,7 +368,74 @@ class AgentLoopServiceV2 extends ChangeNotifier {
         );
       }
 
-      // 执行工具调用
+      // 接近迭代上限时，强制收尾：执行完这轮工具后不再继续
+      if (_iteration >= _maxIterations - 1) {
+        debugPrint('[AgentLoopV2] ⚠️ 接近迭代上限，执行最后一轮工具后强制收尾');
+
+        // 执行这轮工具调用
+        for (final call in callsList) {
+          final toolName = call['function']?['name'] ?? call['name'] ?? '';
+          final toolArgsStr = call['function']?['arguments'] ?? '{}';
+          final toolCallId = call['id'] ?? '';
+
+          Map<String, dynamic> toolArgs;
+          try {
+            toolArgs = Map<String, dynamic>.from(
+              jsonDecode(toolArgsStr is String ? toolArgsStr : jsonEncode(toolArgsStr)),
+            );
+          } catch (_) {
+            toolArgs = {};
+          }
+
+          onToolCall?.call(toolName, toolArgs);
+          final result = await _executeTool(toolName, toolArgs);
+          final resultJson = jsonEncode({
+            'isSuccess': result.isSuccess,
+            if (result.isSuccess) 'data': result.data,
+            if (!result.isSuccess) 'error': result.error,
+          });
+
+          messages.add(ChatMessage(
+            role: MessageRole.tool,
+            content: resultJson,
+            toolCallId: toolCallId,
+            name: toolName,
+          ));
+
+          onToolResult?.call(toolName, result.isSuccess, result.isSuccess ? result.data : result.error);
+        }
+
+        // 强制收尾：让 LLM 用已有信息生成最终回复
+        messages.add(ChatMessage(
+          role: MessageRole.user,
+          content: '[系统强制收尾] 你已经执行了很多步骤，现在必须立即给用户一个最终回复。'
+              '根据你目前收集到的所有信息，直接回答用户的问题。'
+              '不要再调用任何工具。直接给出完整的最终答案。',
+        ));
+
+        // 最后一轮 LLM 调用（不带工具）
+        final finalResponse = await _chatWithRetry(messages, []);
+        if (finalResponse != null && (finalResponse.content ?? '').isNotEmpty) {
+          _state = AgentState.completed;
+          notifyListeners();
+          return AgentResult(
+            success: true,
+            content: finalResponse.content!,
+            iterations: _iteration,
+          );
+        }
+
+        // 即使 LLM 最后调用也失败了，用已有信息拼一个回复
+        _state = AgentState.completed;
+        notifyListeners();
+        return AgentResult(
+          success: true,
+          content: _buildFallbackResponse(messages),
+          iterations: _iteration,
+        );
+      }
+
+      // 正常执行工具调用
       _state = AgentState.acting;
       notifyListeners();
 
@@ -354,6 +495,10 @@ class AgentLoopServiceV2 extends ChangeNotifier {
 
         debugPrint('[AgentLoopV2] 工具结果: ${result.isSuccess ? "✓" : "✗"} ${_truncate(result.data ?? result.error ?? "", 100)}');
 
+        // 收集工具结果用于快照
+        final resultStr = result.isSuccess ? (result.data ?? '') : (result.error ?? '');
+        _currentToolResults[toolName] = _truncate(resultStr, 200);
+
         // 回调：工具执行完成
         onToolResult?.call(toolName, result.isSuccess, result.isSuccess ? result.data : result.error);
       }
@@ -379,8 +524,8 @@ class AgentLoopServiceV2 extends ChangeNotifier {
     notifyListeners();
     return AgentResult(
       success: false,
-      content: '',
-      error: '超过最大迭代次数 ($_maxIterations)',
+      content: _buildFallbackResponse(messages),
+      error: '超过最大迭代次数 ($_maxIterations)，但已根据收集到的信息生成回复',
       iterations: _iteration,
     );
   }
@@ -626,6 +771,43 @@ class AgentLoopServiceV2 extends ChangeNotifier {
     return giveUpPatterns.any((p) => lower.contains(p));
   }
 
+  // ==================== 兜底回复 ====================
+
+  /// 从已收集的信息中构建兜底回复
+  String _buildFallbackResponse(List<ChatMessage> messages) {
+    final buffer = StringBuffer();
+    buffer.writeln('根据已收集到的信息：');
+    buffer.writeln();
+
+    // 从工具结果中提取有用信息
+    for (final msg in messages) {
+      if (msg.role == MessageRole.tool && msg.content != null) {
+        try {
+          final json = jsonDecode(msg.content!);
+          if (json is Map && json['isSuccess'] == true && json['data'] != null) {
+            final data = json['data'] as String;
+            if (data.isNotEmpty && data.length < 2000) {
+              buffer.writeln(data);
+              buffer.writeln();
+            }
+          }
+        } catch (_) {
+          // 不是 JSON，直接用
+          if (msg.content != null && msg.content!.length < 2000) {
+            buffer.writeln(msg.content);
+            buffer.writeln();
+          }
+        }
+      }
+    }
+
+    if (buffer.length > 50) {
+      return buffer.toString().trim();
+    }
+
+    return '抱歉，我在处理这个任务时遇到了一些困难，没能完全完成。请换个方式描述你的需求，我会再试一次。';
+  }
+
   // ==================== System Prompt ====================
 
   String _buildSystemPrompt() {
@@ -633,111 +815,71 @@ class AgentLoopServiceV2 extends ChangeNotifier {
       return '- **${t.name}**: ${t.description}';
     }).join('\n');
 
-    final hasCodeTools = _tools.containsKey('create_code_project') || _tools.containsKey('update_code_file');
-    final codeGuidance = hasCodeTools ? '''
+    return '''你是小紫霞智能助手，一个具备工具调用能力的 AI Agent。
 
-## 代码开发指南
-当用户要求创建程序（计算器、游戏、工具等）时：
-1. 调用 `create_code_project` 工具，在 `code` 参数中提供**完整可用的 HTML 代码**（包含 CSS 和 JavaScript）
-2. 代码必须是完整独立的 HTML 文件，可以直接在浏览器/WebView 中运行
-3. 界面要美观、交互要完整、功能要实用
-4. 不要只给空壳模板，要实现用户要求的全部功能
-5. 如果用户要求修改已有项目，先调用 `list_code_projects` 查看，再调用 `update_code_file` 修改
+## 核心身份
+你不是一个纯文本 AI。你拥有工具，可以主动获取信息、执行操作、解决问题。
+你的目标是用工具获取准确信息，而不是凭记忆猜测。
 
-示例：用户说"帮我做一个计算器"
-→ 调用 create_code_project，name="计算器"，code=一个包含完整计算器 UI 和 JS 逻辑的 HTML 文件
-''' : '';
+## 🚨 通用问题解决框架（适用所有问题）
 
-    final hasWebSearch = _tools.containsKey('web_search');
-    final webGuidance = hasWebSearch ? '''
+收到任何问题时，严格按以下流程处理：
 
-## 联网搜索指南
-当你需要获取实时信息（天气、新闻、时事、价格、最新数据等）时：
-1. 优先调用 `web_search` 搜索相关信息
-2. 如果搜索结果中的链接看起来有用，可以调用 `web_fetch` 获取详细内容
-3. 综合搜索结果，用你自己的语言整理回答用户
-4. 不要逐条罗列搜索结果，要提炼要点
-''' : '';
+### Step 1: 理解意图
+- 用户想要什么结果？
+- 需要哪些信息才能给出答案？
+- 有没有隐含的依赖（如位置、时间、上下文）？
 
-    // 任务分解引导（始终包含）
-    const taskDecompGuidance = '''
+### Step 2: 检查工具
+- 查看下面的可用工具列表
+- 哪些工具能获取我需要的信息？
+- 如果当前工具不够，先搜索安装新工具（skill_hub_search → skill_hub_install）
+- 用户说"我这/这里/当地/附近" → 必须先调用 get_location
 
-## 任务分解（重要！）
-当用户的问题需要多个步骤时，你必须**自动分解并逐步执行**，而不是直接问用户更多信息。
+### Step 3: 规划并执行
+- 列出需要调用的工具和顺序
+- 每次只做一步，观察结果后决定下一步
+- 如果工具 A 失败 → 换工具 B（如 skill 失败 → web_fetch）
+- 如果需要新工具 → skill_hub_search + skill_hub_install
 
-### 常见多步骤场景：
-1. **需要位置的任务**：用户说"我这"、"附近"、"从这里" → 先获取位置，再搜索
-   - 例："从我这去北京动车票" → ①获取当前位置 → ②搜索"XX到北京动车票"
-   - 例："附近有什么好吃的" → ①获取位置 → ②搜索"XX附近餐厅"
-2. **需要搜索+整理的任务** → 先搜索，再整理回答
-3. **需要多个信息源的任务** → 逐步获取，综合回答
+### Step 4: 整理并回答
+- 用工具获取的数据给用户一个清晰、准确的答案
+- 不要重复展示原始 JSON 或技术日志
+- 标注数据来源和时间
 
-### 原则：
-- 不要因为缺少信息就停下来问用户，而是**主动用工具获取**
-- 如果有位置相关工具，用户提到"我这/附近/这里"时自动获取位置
-- 一步一步执行，每步观察结果再决定下一步
-''';
+## 🔧 失败处理（永不放弃）
 
-    final hasSkillHub = _tools.containsKey('skill_hub_search');
-    final skillHubGuidance = hasSkillHub ? '''
+遇到失败时，按以下顺序尝试：
+1. **分析原因** — 参数错误？工具不可用？缺少前置信息？
+2. **换方法** — 工具 A 不行换工具 B，方法 X 不行试方法 Y
+3. **搜索新工具** — skill_hub_search 找新技能，skill_hub_install 安装
+4. **自己写代码** — 用 run_script 写 JS 脚本解决问题
+5. **联网搜索** — web_search + web_fetch 获取信息
+6. **协商** — 如果以上都不行，用 ask_user 和用户商量替代方案
 
-## 工具发现与扩展（重要！）
-当你发现当前工具不足以完成用户任务时，不要直接说"做不到"。按以下优先级尝试：
+## 🤝 协商规则（重要！）
+- 当所有工具都无法完成任务时，必须调用 ask_user
+- ask_user 中要说明：遇到什么问题 + 分析原因 + 提出替代方案选项
+- 绝对不能直接说"我做不到"就结束
+- 如果用户之前已经提供过信息（上下文中有），不要再说"请提供"
 
-### 1. 搜索新技能
-调用 `skill_hub_search` 在技能市场搜索可能存在的新工具。
-例如：用户要查汇率 → 搜索 "exchange rate"；用户要翻译 → 搜索 "translate"。
+## 📝 学习（save_as_skill）
 
-### 2. 安装新技能
-如果搜索到了合适的技能，调用 `skill_hub_install` 安装它。
-安装成功后，新技能会立即可用，你可以直接在下一轮调用它。
+成功完成复杂任务后，主动调用 save_as_skill 保存解决路径，方便下次复用。
 
-### 3. 自己写代码
-如果技能市场也没有合适的工具，调用 `run_script` 自己写 JS/HTML 代码解决问题。
-你可以写代码来：调用外部 API、做复杂计算、处理数据、生成图表等。
+## ⛔ 绝对禁止
+- **禁止说"我无法获取"而不尝试工具** — 你有工具，先用工具
+- **禁止向用户要你可以自己获取的信息**（如位置——用 get_location）
+- **禁止连续相同调用** — 说明在死循环，必须换方法
+- **禁止没给有用答案就结束**
 
-**核心原则：永远先尝试用工具解决，不要轻易说"我做不到"。**
-''' : '';
-
-    return '''你是小紫霞智能助手，具备自主执行任务的能力。
-$skillHubGuidance
-
-## 工作模式
-你按照以下循环工作：
-1. **观察** → 分析当前状态和已有信息
-2. **思考** → 规划下一步行动
-3. **行动** → 调用合适的工具执行
-4. **验证** → 检查结果，决定继续还是完成
-
-## 核心原则
-- 先理解意图，再行动
-- 每次只做一步，观察结果再决定下一步
-- 遇到失败尝试不同方法
-- 任务完成后立即回复用户，不要多余操作
-- **自主解决问题**：如果某个工具不可用，尝试其他方式完成任务（如 Skill 不可用时用 web_search）
-- **不要说做不到**：尽力用已有工具完成，实在不行才告诉用户限制
-
-## ⚠️ 失败回退策略（最重要！）
-当你的首选方法失败时，必须按以下优先级降级，**绝对不能在没给用户任何有用信息的情况下结束**：
-
-1. **理想路径失败**（如缺少位置技能/SkillHub无结果）→ 用 `web_search` 直接搜索用户的问题
-   - 例：查不了"我这的天气" → 直接搜索"中国主要城市明天天气预报"
-   - 例：找不到位置 → 搜索"今天天气概况"给用户一个参考
-2. **工具全部不可用** → 用你自己的知识给出最佳回答，并说明限制
-3. **核心底线：每次任务都必须给用户一个有用的答案**，哪怕不是最精确的
-
-$codeGuidance$webGuidance$taskDecompGuidance
 ## 可用工具
 $toolsDesc
 
-## 完成任务
-当任务完成时，直接回复用户，不要调用工具。
-如果无法完成，说明原因和建议的替代方案。
-
-## 安全约束
-- 不执行破坏性操作
-- 不自动填写支付信息
-- 遇到需要登录的操作，通知用户
+## 回复要求
+- 用中文回复
+- 给出明确答案
+- 任务完成后考虑用 save_as_skill 记录经验
 ''';
   }
 
@@ -764,4 +906,74 @@ $toolsDesc
   /// 获取工具定义列表
   List<ToolDefinition> get toolDefinitions =>
       _tools.values.map((t) => t.toToolDefinition()).toList();
+
+  // ==================== 任务状态持久化 ====================
+
+  /// 当前执行的任务 ID（用于快照关联）
+  String? _currentTaskId;
+
+  /// 当前执行中的消息列表引用（用于快照保存）
+  List<ChatMessage>? _currentMessages;
+
+  /// 当前执行中的工具结果收集
+  final Map<String, String> _currentToolResults = {};
+
+  /// 保存当前执行状态为快照
+  Future<void> _saveCurrentSnapshot(String task, String status, {String? error}) async {
+    if (_currentMessages == null) return;
+
+    final taskId = _currentTaskId ?? DateTime.now().millisecondsSinceEpoch.toString();
+    final messagesJson = _currentMessages!.map((m) => m.toJson()).toList();
+
+    final snapshot = TaskSnapshot(
+      taskId: taskId,
+      originalTask: task,
+      createdAt: DateTime.now().subtract(Duration(seconds: _iteration * 10)),
+      updatedAt: DateTime.now(),
+      status: status,
+      messages: messagesJson,
+      iteration: _iteration,
+      maxIterations: _maxIterations,
+      toolResults: Map.from(_currentToolResults),
+      error: error,
+      partialResult: _buildFallbackResponse(_currentMessages!),
+    );
+
+    await _taskState.saveSnapshot(snapshot);
+    debugPrint('[AgentLoopV2] 快照已保存: $taskId ($status)');
+  }
+
+  /// 获取最近可恢复的任务
+  Future<TaskSnapshot?> getLatestResumableTask() async {
+    return await _taskState.getLatestResumable();
+  }
+
+  /// 搜索与描述匹配的可恢复任务
+  Future<TaskSnapshot?> findRelatedTask(String description) async {
+    return await _taskState.findRelatedTask(description);
+  }
+
+  /// 尝试恢复一个任务（通用入口）
+  /// 当用户说"继续刚才的任务"、"再试一次"等时调用
+  Future<AgentResult> resumeTask(String userMessage) async {
+    // 1. 尝试找到相关的任务快照
+    TaskSnapshot? snapshot = await _taskState.findRelatedTask(userMessage);
+    snapshot ??= await _taskState.getLatestResumable();
+
+    if (snapshot == null) {
+      // 没有可恢复的任务，正常执行
+      return execute(userMessage);
+    }
+
+    debugPrint('[AgentLoopV2] 恢复任务: ${snapshot.taskId} - ${snapshot.originalTask}');
+    _currentTaskId = snapshot.taskId;
+
+    // 用快照中的信息构造恢复提示
+    final resumeTask = '继续完成之前的任务: ${snapshot.originalTask}'
+        '\n之前已经执行了 ${snapshot.iteration} 步。'
+        '${snapshot.error != null ? '\n上次失败原因: ${snapshot.error}' : ''}'
+        '\n请从上次中断的地方继续，不要重复已完成的步骤。';
+
+    return execute(resumeTask, resumeFrom: snapshot);
+  }
 }

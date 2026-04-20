@@ -517,11 +517,51 @@ class SkillExecutor {
         url = url.replaceAll('{$key}', value.toString());
       });
 
-      final response = await _client.get(Uri.parse(url));
-      return response.statusCode == 200 ? response.body.trim() : '请求失败: ${response.statusCode}';
+      final response = await _client.get(Uri.parse(url), headers: {
+        'User-Agent': 'curl/7.64.1',
+        'Accept-Charset': 'utf-8',
+      });
+      
+      if (response.statusCode != 200) {
+        return '请求失败: ${response.statusCode}';
+      }
+      
+      // 通用编码处理：始终使用 bodyBytes + UTF-8 解码
+      // response.body 默认用 Latin-1 解码，会导致 UTF-8 内容（如中文、emoji）乱码
+      String body;
+      try {
+        body = utf8.decode(response.bodyBytes, allowMalformed: true);
+      } catch (_) {
+        body = response.body;
+      }
+      
+      // 修复常见的双重 UTF-8 编码（Â°C → °C 等）
+      body = _fixDoubleEncoding(body);
+      
+      return body.trim();
     } catch (e) {
       return 'HTTP 执行错误: $e';
     }
+  }
+  
+  /// 修复双重 UTF-8 编码问题（通用方法）
+  String _fixDoubleEncoding(String text) {
+    return text
+        .replaceAll('Â°C', '°C')
+        .replaceAll('Â°F', '°F')
+        .replaceAll('â€™', "'")
+        .replaceAll('â€œ', '"')
+        .replaceAll('â€', '"')
+        .replaceAll('â€“', '–')
+        .replaceAll('â€”', '—')
+        .replaceAll('â€¦', '…')
+        .replaceAll('Ã©', 'é')
+        .replaceAll('Ã¨', 'è')
+        .replaceAll('Ã¡', 'á')
+        .replaceAll('Ã±', 'ñ')
+        .replaceAll('Ã¼', 'ü')
+        .replaceAll('Ã¶', 'ö')
+        .replaceAll('Ã¤', 'ä');
   }
   
   /// 执行 curl 命令（转换为 HTTP 请求）
@@ -547,15 +587,28 @@ class SkillExecutor {
       ).timeout(Duration(seconds: 15));
       
       if (response.statusCode == 200) {
-        // 尝试 UTF-8 解码
-        final body = utf8.decode(response.bodyBytes).trim();
+        // 通用编码处理：使用 bodyBytes + UTF-8 解码（与 _executeHttp 一致）
+        final body = utf8.decode(response.bodyBytes, allowMalformed: true).trim();
         
-        // 智能格式化：检测天气 API 的 JSON 响应
-        if (url.contains('wttr.in') && url.contains('format=j1')) {
-          return _formatWeatherJson(body);
+        // 修复双重编码
+        final fixed = _fixDoubleEncoding(body);
+        
+        // 智能格式化：检测 JSON 响应（通用，不仅限于天气）
+        if (url.contains('format=j1') || url.contains('format=json')) {
+          try {
+            final json = jsonDecode(fixed);
+            // 天气 API 特殊处理
+            if (url.contains('wttr.in')) {
+              return _formatWeatherJson(fixed);
+            }
+            // 其他 JSON API：返回格式化的 JSON
+            return const JsonEncoder.withIndent('  ').convert(json);
+          } catch (_) {
+            // JSON 解析失败，返回原始文本
+          }
         }
         
-        return body;
+        return fixed;
       } else {
         return '请求失败: ${response.statusCode}';
       }
@@ -914,6 +967,34 @@ class SkillManager {
       return await executor.execute(skill, params);
     } finally {
       executor.dispose();
+    }
+  }
+
+  /// 技能存储路径（Learned Skills 的保存位置）
+  String get skillsPath => 'learned';
+
+  /// 保存从对话中学习的 Skill
+  Future<bool> saveLearnedSkill(String skillId, String content) async {
+    try {
+      // 解析内容创建 Skill 对象
+      final skill = _loader.parseSkillContent(content);
+      if (skill != null) {
+        return installSkill(skill);
+      }
+
+      // 解析失败，手动创建
+      final manualSkill = Skill(
+        id: skillId,
+        metadata: SkillMetadata(
+          name: skillId,
+          description: '自动学习的技能',
+        ),
+        body: content,
+      );
+      return installSkill(manualSkill);
+    } catch (e) {
+      debugPrint('[SkillManager] 保存学习技能失败: $e');
+      return false;
     }
   }
 }

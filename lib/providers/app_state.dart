@@ -1,4 +1,4 @@
-// 应用状态管理
+﻿// 应用状态管理
 //
 // 管理 LLM 配置、能力层、对话历史、Skills、远程连接、话题
 
@@ -39,6 +39,7 @@ import '../services/sandbox/code_sandbox_service.dart';
 import '../services/sandbox/code_agent_tools.dart';
 import '../services/web/web_agent_tools.dart';
 import '../services/skills/clawhub_service.dart';
+import '../services/native/location_service.dart';
 import '../widgets/task_list.dart';
 
 /// Agent 执行步骤（用于 UI 展示进度）
@@ -174,6 +175,38 @@ class AppState extends ChangeNotifier {
   final List<ChatMessage> _llmMessages = [];
   int _messageIndex = 0;
 
+  /// 确保对话历史以系统提示开头
+  /// 这是所有 LLM 调用的基础 —— 让 LLM 知道自己是 Agent，有工具可用
+  void _ensureSystemPrompt() {
+    if (_llmMessages.isEmpty || _llmMessages[0].role != MessageRole.system) {
+      final toolsDesc = _agentLoopV2.registeredTools.map((t) => '- ${t.name}: ${t.description}').join('\n');
+      
+      final systemPrompt = '你是小紫霞智能助手，一个具备工具调用能力的 AI Agent。\n'
+          '\n'
+          '## 核心身份\n'
+          '你不是纯文本 AI。你拥有工具，可以主动获取信息、执行任务。\n'
+          '\n'
+          '## 通用问题解决框架\n'
+          '收到任何问题时，按以下流程思考：\n'
+          '1. **理解意图** — 用户想要什么？需要什么信息？\n'
+          '2. **检查工具** — 我的可用工具能获取这些信息吗？\n'
+          '3. **规划步骤** — 需要哪些步骤？有没有依赖关系？\n'
+          '4. **执行** — 调用工具获取信息，逐步完成任务\n'
+          '5. **回答** — 用获取到的信息给用户一个清晰的答案\n'
+          '\n'
+          '## 可用工具\n'
+          '$toolsDesc\n'
+          '\n'
+          '## 重要原则\n'
+          '- 能用工具获取的信息，不要猜测\n'
+          '- 用户说"我这/这里/当地"时，用 get_location 获取位置\n'
+          '- 工具失败时换另一种方法\n'
+          '- 回复简洁友好\n';
+      
+      _llmMessages.insert(0, ChatMessage.system(systemPrompt));
+    }
+  }
+
   // 话题管理（学习 DeepSeek）
   late TopicManager _topicManager;
 
@@ -226,6 +259,9 @@ class AppState extends ChangeNotifier {
 
   // ClawHub 技能市场
   final ClawHubService _clawhub = ClawHubService();
+
+  // 位置服务
+  final LocationService _locationService = LocationService();
 
   // 二维码服务
   QRCodeService? _qrcodeService;
@@ -583,17 +619,21 @@ class AppState extends ChangeNotifier {
     // 注册 Skill 工具
     registerSkillTools(_agentLoopV2, _skillManager);
 
+    // 注册 Skill 保存工具（从对话学习）
+    registerSkillSaveTool(_agentLoopV2, _skillManager);
+
     // 注册代码沙盒工具
     registerCodeSandboxTools(_agentLoopV2, _codeSandbox);
 
     // 注册 Web 工具（搜索+获取）
     registerWebTools(_agentLoopV2, _webSearchService, _webFetchService);
 
-    // 注册元工具（技能发现+安装+脚本执行）
+    // 注册元工具（技能发现+安装+脚本执行+位置）
     registerMetaTools(_agentLoopV2,
       clawhub: _clawhub,
       skillManager: _skillManager,
       sandbox: _codeSandbox,
+      locationService: _locationService,
     );
 
     // 设置工具调用回调（UI 实时展示）
@@ -677,86 +717,74 @@ class AppState extends ChangeNotifier {
       // TODO: 支持 Document LLM
     }
     
-    // 添加消息到 LLM 历史
+    // ================================================================
+    // 新路由逻辑：Agent First
+    // 所有消息默认走 Agent Loop（Agent 自带 system prompt + 工具列表）
+    // 只有纯闲聊才走直接 LLM 流式回复
+    // ================================================================
+
+    // 判断是否为纯闲聊（不需要工具的简单对话）
+    final isChitchat = _isPureChitchat(content);
+
+    if (isChitchat || _agentLoopV2.registeredTools.isEmpty) {
+      // 纯闲聊或无工具 → 直接 LLM 流式回复
+      debugPrint('[AppState] 纯闲聊或无工具，走直接 LLM 流式回复');
+      _ensureSystemPrompt();
+
+      if (imageBase64List != null && imageBase64List.isNotEmpty) {
+        final imageMaps = imageBase64List.map((b64) => <String, dynamic>{'url': b64}).toList();
+        _llmMessages.add(ChatMessage.multimodal(text: llmContent, images: imageMaps));
+      } else {
+        _llmMessages.add(ChatMessage.user(llmContent));
+      }
+
+      await _streamLLMResponse();
+      return;
+    }
+
+    // 所有非闲聊消息 → 走 Agent Loop
+    debugPrint('[AppState] → Agent Loop 处理（通用问题解决）');
+    
+    // 添加到 LLM 历史
+    _ensureSystemPrompt();
     if (imageBase64List != null && imageBase64List.isNotEmpty) {
-      // 多模态消息（带图片）
-      // 直接传递 URL 格式的 Map
       final imageMaps = imageBase64List.map((b64) => <String, dynamic>{'url': b64}).toList();
-      _llmMessages.add(ChatMessage.multimodal(
-        text: llmContent,
-        images: imageMaps,
-      ));
-      debugPrint('[AppState] 已添加多模态消息: ${imageMaps.length} 张图片');
+      _llmMessages.add(ChatMessage.multimodal(text: llmContent, images: imageMaps));
     } else {
-      // 普通文本消息
       _llmMessages.add(ChatMessage.user(llmContent));
     }
 
-    print('[DEBUG] ========== 智能意图识别开始 ==========');
-    String? skillResponse;
-
-    try {
-      // 创建意图识别器
-      final recognizer = IntentRecognizer(_llmProvider!);
-      
-      // 使用 LLM 识别意图
-      print('[DEBUG] 使用 LLM 识别意图...');
-      final intent = await recognizer.recognize(content);
-      
-      print('[DEBUG] 意图识别结果: $intent');
-
-      // 如果识别到 Skill 意图
-      if (intent.hasIntent) {
-        print('[DEBUG] ✓ 识别到 Skill: ${intent.skillId}');
-        print('[DEBUG] 参数: ${intent.params}');
-
-        // 执行 Skill
-        skillResponse = await _executeSkillById(intent.skillId!, intent.params);
-      } else {
-        print('[DEBUG] ✗ 没有识别到 Skill 意图，调用 LLM');
-      }
-    } catch (e) {
-      print('[DEBUG] 意图识别出错: $e');
-      // 出错时回退到快速检测
-      final quickIntent = IntentRecognizer.quickDetect(content);
-      if (quickIntent.hasIntent) {
-        print('[DEBUG] 快速检测到 Skill: ${quickIntent.skillId}');
-        skillResponse = await _executeSkillById(quickIntent.skillId!, quickIntent.params);
-      }
-    }
-
-    // 如果 Skill 有响应且不是失败信息，直接返回
-    if (skillResponse != null && !skillResponse.startsWith('⚠️') && !skillResponse.startsWith('❌')) {
-      final assistantMsg = ConversationMessage(
-        id: 'assistant_${_messageIndex++}',
-        role: MessageRole.assistant,
-        content: skillResponse,
-      );
-      _messages.add(assistantMsg);
-      notifyListeners();
-
-      // 自动播放语音回复
-      _speakResponse(skillResponse);
-
+    // 检测是否为"继续/重试"类意图 → 尝试恢复任务
+    if (_isTaskResumeIntent(content)) {
+      debugPrint('[AppState] 检测到任务恢复意图: $content');
+      await _resumePreviousTask(content);
       return;
     }
 
-    // Skill 不可用或失败 → 降级到 Agent Loop 或 LLM
-    // Agent Loop 可以调用 web_search 等工具自主解决问题
-    if (skillResponse != null && _agentLoopV2.registeredTools.isNotEmpty) {
-      debugPrint('[AppState] Skill 不可用，降级到 Agent Loop 自主解决');
-      // 构建 Agent 任务，让 Agent 自己想办法
-      final agentTask = '用户问：$content\n注意：请用可用的工具来回答用户的问题。';
-      // 强制单步模式，不走 TaskDecomposer（避免简单问题被过度分解）
-      _isSingleStepTask = true;
-      await _executeWithAgentLoop(agentTask);
-      return;
+    // 构建给 Agent 的任务描述
+    _isSingleStepTask = true; // 单步模式，不走 TaskDecomposer
+    await _executeWithAgentLoop(content);
+  }
+
+  /// 判断是否为纯闲聊（不需要工具、不需要搜索的简单对话）
+  bool _isPureChitchat(String message) {
+    final trimmed = message.trim();
+    // 很短的消息（<=4个字）
+    if (trimmed.length <= 4) {
+      final patterns = ['你好', '嗨', 'hi', 'hello', 'hey', '谢谢', '好的', '嗯', '哦', '哈', '哈哈', '呵呵', '拜拜', '再见', 'OK', 'ok'];
+      return patterns.any((p) => trimmed.toLowerCase() == p);
     }
+    // 纯闲聊模式
+    final chitchatPatterns = [
+      RegExp(r'^(你好|嗨|hello|hi|hey)[\s!！。]*$', caseSensitive: false),
+      RegExp(r'^(谢谢|感谢|thanks|thank you)[\s!！。]*$', caseSensitive: false),
+      RegExp(r'^(再见|拜拜|bye|goodbye)[\s!！。]*$', caseSensitive: false),
+    ];
+    return chitchatPatterns.any((p) => p.hasMatch(trimmed));
+  }
 
-    // 调用 LLM（传入 tools，让 LLM 自己决定是否调用工具）
-    print('[DEBUG] 调用 LLM 生成回复（带工具）...');
-
-    // 添加空的助手消息（用于流式填充）
+  /// 直接 LLM 流式回复（用于纯闲聊）
+  Future<void> _streamLLMResponse() async {
     final assistantIndex = _messages.length;
     final assistantMsg = ConversationMessage(
       id: 'assistant_${_messageIndex++}',
@@ -771,15 +799,8 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // 智能上下文窗口管理：自动裁剪超限的消息
       final contextMessages = _smartContext.fitContextWindow(_llmMessages);
-      
-      // 获取工具定义（如果有）
-      final toolDefs = _agentLoopV2.registeredTools.isNotEmpty
-          ? _agentLoopV2.toolDefinitions
-          : null;
-      
-      final stream = _llmProvider!.chatStream(contextMessages, tools: toolDefs);
+      final stream = _llmProvider!.chatStream(contextMessages);
       final buffer = StringBuffer();
 
       await for (final event in stream) {
@@ -793,27 +814,12 @@ class AppState extends ChangeNotifier {
         }
 
         if (event.done) {
-          // 检查是否有工具调用 → 切换到 Agent Loop
-          if (event.hasToolCalls) {
-            debugPrint('[AppState] LLM 返回 tool_calls，切换到 Agent Loop');
-            // 移除流式占位消息
-            _messages.removeAt(assistantIndex);
-            notifyListeners();
-            // 用 Agent Loop 执行（已有对话上下文 + tool_calls）
-            _isSingleStepTask = true;
-            await _executeWithAgentLoop(content);
-            return;
-          }
-
           final responseText = buffer.toString();
           _messages[assistantIndex] = _messages[assistantIndex].copyWith(
             content: responseText,
             isStreaming: false,
           );
-
-          // 自动播放语音回复
           _speakResponse(responseText);
-
           break;
         }
 
@@ -828,12 +834,9 @@ class AppState extends ChangeNotifier {
 
       _llmMessages.add(ChatMessage.assistant(buffer.toString()));
       
-      // 同时添加到话题管理器
       if (_topicManager.currentTopic != null) {
         _topicManager.currentTopic!.addMessage(ChatMessage.assistant(buffer.toString()));
-        _topicManager.save(); // 保存话题
-        
-        // 检查是否需要压缩对话历史
+        _topicManager.save();
         await _tryCompressHistory();
       }
       
@@ -849,8 +852,6 @@ class AppState extends ChangeNotifier {
     _isGenerating = false;
     notifyListeners();
   }
-
-  /// 执行 Skill（根据 ID）
   Future<String?> _executeSkillById(String skillId, Map<String, dynamic> params) async {
     try {
       print('[DEBUG] ========== 开始执行 Skill ==========');
@@ -1193,6 +1194,10 @@ class AppState extends ChangeNotifier {
         return '保存记忆';
       case 'memory_search':
         return '搜索记忆';
+      case 'ask_user':
+        return '🤔 与用户协商';
+      case 'save_as_skill':
+        return '📝 保存为新技能: ${args['name'] ?? ''}';
       case 'create_code_project':
         return '创建项目: ${args['name'] ?? ''}';
       default:
@@ -1221,6 +1226,60 @@ class AppState extends ChangeNotifier {
 
     _isGenerating = false;
     notifyListeners();
+  }
+
+  // ==================== 任务恢复机制（通用） ====================
+
+  /// 检测用户消息是否为"继续/重试"类意图
+  bool _isTaskResumeIntent(String message) {
+    final lower = message.toLowerCase().trim();
+    final resumePatterns = [
+      '继续', '再试', '重来', '再来', '重新', '继续完成',
+      '接着', '接续', 'retry', 'continue', 'try again',
+      '刚才的任务', '之前的任务', '上次的任务',
+      '还没完', '没完成', '没做完',
+    ];
+    return resumePatterns.any((p) => lower.contains(p)) && lower.length <= 30;
+  }
+
+  /// 恢复之前的失败任务
+  Future<void> _resumePreviousTask(String userMessage) async {
+    // 确保工具已注册
+    if (_agentLoopV2.registeredTools.isEmpty) {
+      _registerAgentTools();
+    }
+
+    // 添加 Agent 消息占位
+    final agentMsg = ConversationMessage(
+      id: 'assistant_${_messageIndex++}',
+      role: MessageRole.assistant,
+      content: '🔄 正在恢复之前的任务...',
+      isStreaming: true,
+      agentSteps: [
+        AgentStep(id: 'restore', description: '查找之前的任务记录', status: 'running'),
+      ],
+    );
+    _messages.add(agentMsg);
+    _isGenerating = true;
+    notifyListeners();
+
+    final msgIndex = _messages.length - 1;
+
+    try {
+      final result = await _agentLoopV2.resumeTask(userMessage);
+
+      _updateStepStatus(_messages[msgIndex].agentSteps, 'restore', 'completed',
+        result: result.success ? '已恢复任务' : '未找到可恢复的任务');
+      _finishAgentMessage(msgIndex, result);
+    } catch (e) {
+      _messages[msgIndex] = _messages[msgIndex].copyWith(
+        content: '❌ 恢复任务失败: $e',
+        isStreaming: false,
+        error: e.toString(),
+      );
+      _isGenerating = false;
+      notifyListeners();
+    }
   }
 
   /// 检查并压缩对话历史（异步，不阻塞 UI）
@@ -1382,7 +1441,7 @@ class AppState extends ChangeNotifier {
   /// 清空对话历史
   Future<void> clearConversation() async {
     _messages.clear();
-    _llmMessages.clear();
+    _llmMessages.clear(); // 系统提示会在下次发消息时自动重建
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('conversation_history');

@@ -31,7 +31,13 @@ class WebFetchService {
       // 解码内容
       String content;
       try {
-        content = utf8.decode(response.bodyBytes);
+        // 使用 bodyBytes 确保正确 UTF-8 解码
+        final bytes = response.bodyBytes;
+        // 尝试检测是否已经是正确的 UTF-8
+        content = utf8.decode(bytes, allowMalformed: true);
+        
+        // 修复常见的双重编码问题（如 Â°C → °C）
+        content = _fixDoubleEncoding(content);
       } catch (_) {
         content = response.body;
       }
@@ -111,6 +117,28 @@ class WebFetchService {
         .replaceAll('&#39;', "'")
         .replaceAll('&apos;', "'");
         // 简化：不处理数字实体
+  }
+
+  /// 修复双重 UTF-8 编码问题
+  /// 例如：Â°C → °C, Ã© → é 等
+  String _fixDoubleEncoding(String text) {
+    // 常见的双重编码替换
+    return text
+        .replaceAll('Â°C', '°C')
+        .replaceAll('Â°F', '°F')
+        .replaceAll('â€™', "'")
+        .replaceAll('â€œ', '"')
+        .replaceAll('â€', '"')
+        .replaceAll('â€“', '–')
+        .replaceAll('â€”', '—')
+        .replaceAll('â€¦', '…')
+        .replaceAll('Ã©', 'é')
+        .replaceAll('Ã¨', 'è')
+        .replaceAll('Ã¡', 'á')
+        .replaceAll('Ã±', 'ñ')
+        .replaceAll('Ã¼', 'ü')
+        .replaceAll('Ã¶', 'ö')
+        .replaceAll('Ã¤', 'ä');
   }
 
   /// 获取网页标题
