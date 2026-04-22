@@ -15,10 +15,10 @@ class LLMConfigScreen extends StatefulWidget {
 class _LLMConfigScreenState extends State<LLMConfigScreen> {
   final _formKey = GlobalKey<FormState>();
   
-  // 默认配置：Ollama + Mac Tailscale IP
+  // 默认配置：Ollama + 本地
   String _selectedProvider = 'ollama';
   final _apiKeyController = TextEditingController(text: 'ollama');
-  final _baseUrlController = TextEditingController(text: 'http://100.98.121.70:11434/v1');
+  final _baseUrlController = TextEditingController(text: 'http://localhost:11434/v1');
   String _selectedModel = 'qwen2.5-coder:7b';
   double _temperature = 0.7;
   int _maxTokens = 4096;
