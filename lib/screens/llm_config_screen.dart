@@ -15,10 +15,11 @@ class LLMConfigScreen extends StatefulWidget {
 class _LLMConfigScreenState extends State<LLMConfigScreen> {
   final _formKey = GlobalKey<FormState>();
   
-  String _selectedProvider = 'qwen';  // 默认通义千问
-  final _apiKeyController = TextEditingController(text: 'sk-3c9cef873f154c86a14a971ad3b98d82');  // 硬编码 API Key
-  final _baseUrlController = TextEditingController(text: 'https://dashscope.aliyuncs.com/compatible-mode/v1');  // 硬编码 Base URL
-  String _selectedModel = 'qwen-plus';  // 默认模型
+  // 默认配置：Ollama + Mac Tailscale IP
+  String _selectedProvider = 'ollama';
+  final _apiKeyController = TextEditingController(text: 'ollama');
+  final _baseUrlController = TextEditingController(text: 'http://100.98.121.70:11434/v1');
+  String _selectedModel = 'qwen2.5-coder:7b';
   double _temperature = 0.7;
   int _maxTokens = 4096;
   final _systemPromptController = TextEditingController();
@@ -76,6 +77,11 @@ class _LLMConfigScreenState extends State<LLMConfigScreen> {
     // 特殊处理：Qwen 默认使用 qwen-plus
     if (_selectedProvider == 'qwen' && _selectedModel.isEmpty) {
       _selectedModel = 'qwen-plus';
+    }
+    
+    // 特殊处理：Ollama 默认使用 qwen2.5-coder:7b
+    if (_selectedProvider == 'ollama' && (_selectedModel.isEmpty || _selectedModel == 'llama3')) {
+      _selectedModel = 'qwen2.5-coder:7b';
     }
     
     // 特殊处理：GLM 默认使用 glm-5
