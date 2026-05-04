@@ -1,0 +1,20 @@
+# LittleZiXia Mobile App
+
+## Ignore build artifacts
+build/
+.gradle/
+*.apk
+*.keystore
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large files
+*.mp4
+*.mov
+*.zip
