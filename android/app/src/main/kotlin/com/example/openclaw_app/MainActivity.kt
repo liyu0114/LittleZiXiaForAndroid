@@ -12,6 +12,7 @@ import io.flutter.embedding.android.FlutterActivity
 class MainActivity : FlutterActivity() {
     private val CHANNEL_SPEECH = "com.example.openclaw_app/speech"
     private val CHANNEL_FILE = "com.example.openclaw_app/file"
+    private val CHANNEL_ACCESSIBILITY = "com.example.openclaw_app/accessibility"
     private val PICK_FILE_REQUEST_CODE = 1001
     private var filePickerResult: MethodChannel.Result? = null
     
@@ -52,6 +53,66 @@ class MainActivity : FlutterActivity() {
                 "pickFile" -> {
                     filePickerResult = result
                     pickFile()
+                }
+                else -> result.notImplemented()
+            }
+        }
+        
+        // 无障碍服务 Channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_ACCESSIBILITY).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "checkEnabled" -> {
+                    result.success(LittleZiXiaAccessibilityService.isRunning())
+                }
+                "openSettings" -> {
+                    val intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
+                    result.success(true)
+                }
+                "getRootNode" -> {
+                    val rootNode = LittleZiXiaAccessibilityService.instance?.getRootNode()
+                    result.success(rootNode)
+                }
+                "click" -> {
+                    val nodeId = call.argument<String>("nodeId")
+                    val success = LittleZiXiaAccessibilityService.instance?.clickNode(nodeId ?: "") ?: false
+                    result.success(success)
+                }
+                "clickAt" -> {
+                    val x = call.argument<Double>("x")?.toFloat() ?: 0f
+                    val y = call.argument<Double>("y")?.toFloat() ?: 0f
+                    val success = LittleZiXiaAccessibilityService.instance?.clickAt(x, y) ?: false
+                    result.success(success)
+                }
+                "inputText" -> {
+                    val nodeId = call.argument<String>("nodeId")
+                    val text = call.argument<String>("text") ?: ""
+                    val success = LittleZiXiaAccessibilityService.instance?.inputText(nodeId ?: "", text) ?: false
+                    result.success(success)
+                }
+                "scroll" -> {
+                    val nodeId = call.argument<String>("nodeId")
+                    val direction = call.argument<String>("direction") ?: "down"
+                    val success = LittleZiXiaAccessibilityService.instance?.scrollNode(nodeId ?: "", direction) ?: false
+                    result.success(success)
+                }
+                "goBack" -> {
+                    val success = LittleZiXiaAccessibilityService.instance?.goBack() ?: false
+                    result.success(success)
+                }
+                "goHome" -> {
+                    val success = LittleZiXiaAccessibilityService.instance?.goHome() ?: false
+                    result.success(success)
+                }
+                "launchApp" -> {
+                    val packageName = call.argument<String>("packageName") ?: ""
+                    val success = LittleZiXiaAccessibilityService.instance?.launchApp(packageName) ?: false
+                    result.success(success)
+                }
+                "getCurrentPackage" -> {
+                    val package = LittleZiXiaAccessibilityService.instance?.getCurrentPackage()
+                    result.success(package)
                 }
                 else -> result.notImplemented()
             }
