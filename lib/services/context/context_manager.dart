@@ -1,146 +1,202 @@
-// 上下文管理服务
+// 超长上下文服务
 //
-// 管理注入到 LLM 的上下文大小限制
+// 项目管理 + 对话压缩 + 知识库检索
 
-/// 上下文配置
-class ContextConfig {
-  /// 单文件最大字符数
-  final int maxCharsPerFile;
-  
-  /// 总上下文最大字符数
-  final int maxTotalChars;
-  
-  /// 对话历史最大条数
-  final int maxHistoryMessages;
+import 'dart:convert';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 
-  const ContextConfig({
-    this.maxCharsPerFile = 20000,
-    this.maxTotalChars = 150000,
-    this.maxHistoryMessages = 20,
+/// 项目
+class Project {
+  final String id;
+  final String name;
+  final String? description;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  List<Conversation> conversations;
+  String? summary;
+  
+  Project({
+    required this.id,
+    required this.name,
+    this.description,
+    required this.createdAt,
+    required this.updatedAt,
+    this.conversations = const [],
+    this.summary,
   });
-
-  /// 默认配置（向 OpenClaw 看齐）
-  static const ContextConfig defaultConfig = ContextConfig();
-
-  /// 精简配置（用于子代理）
-  static const ContextConfig minimalConfig = ContextConfig(
-    maxCharsPerFile: 5000,
-    maxTotalChars: 50000,
-    maxHistoryMessages: 5,
-  );
+  
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'description': description,
+    'createdAt': createdAt.toIso8601String(),
+    'updatedAt': updatedAt.toIso8601String(),
+    'conversations': conversations.map((c) => c.toJson()).toList(),
+    'summary': summary,
+  };
 }
 
-/// 上下文管理器
-class ContextManager {
-  final ContextConfig config;
+/// 对话
+class Conversation {
+  final String id;
+  final List<ChatMessage> messages;
+  String? summary;
+  final DateTime createdAt;
+  
+  Conversation({
+    required this.id,
+    required this.messages,
+    this.summary,
+    required this.createdAt,
+  });
+  
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'messages': messages.map((m) => m.toJson()).toList(),
+    'summary': summary,
+    'createdAt': createdAt.toIso8601String(),
+  };
+}
 
-  ContextManager({this.config = ContextConfig.defaultConfig});
+/// 聊天消息
+class ChatMessage {
+  final String role; // user/assistant
+  final String content;
+  final DateTime timestamp;
+  
+  ChatMessage({
+    required this.role,
+    required this.content,
+    required this.timestamp,
+  });
+  
+  Map<String, dynamic> toJson() => {
+    'role': role,
+    'content': content,
+    'timestamp': timestamp.toIso8601String(),
+  };
+}
 
-  /// 截断文本
-  String truncateText(String text, {String? source}) {
-    if (text.length <= config.maxCharsPerFile) {
-      return text;
-    }
-
-    final truncated = text.substring(0, config.maxCharsPerFile);
-    final marker = '\n\n... (内容已截断，原长度: ${text.length} 字符)';
-    
-    print('[ContextManager] 截断 $source: ${text.length} -> ${truncated.length + marker.length}');
-    
-    return truncated + marker;
+/// 超长上下文管理器
+class ContextManager extends ChangeNotifier {
+  final List<Project> _projects = [];
+  Project? _currentProject;
+  Conversation? _currentConversation;
+  
+  static const int MESSAGE_LIMIT = 20;
+  static const int KEEP_RECENT = 10;
+  
+  List<Project> get projects => List.unmodifiable(_projects);
+  Project? get currentProject => _currentProject;
+  
+  /// 创建项目
+  Future<Project> createProject(String name, {String? description}) async {
+    final project = Project(
+      id: 'project_${DateTime.now().millisecondsSinceEpoch}',
+      name: name,
+      description: description,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    _projects.add(project);
+    _currentProject = project;
+    notifyListeners();
+    return project;
   }
-
-  /// 检查并截断上下文
-  String checkAndTruncate(String context, {String? source}) {
-    if (context.length <= config.maxTotalChars) {
-      return context;
+  
+  /// 添加消息到当前对话
+  Future<void> addMessage(String role, String content) async {
+    if (_currentProject == null) return;
+    
+    _currentConversation ??= Conversation(
+      id: 'conv_${DateTime.now().millisecondsSinceEpoch}',
+      messages: [],
+      createdAt: DateTime.now(),
+    );
+    
+    _currentConversation!.messages.add(ChatMessage(
+      role: role,
+      content: content,
+      timestamp: DateTime.now(),
+    ));
+    
+    // 检查是否需要压缩
+    if (_currentConversation!.messages.length > MESSAGE_LIMIT) {
+      await _compressConversation(_currentConversation!);
     }
-
-    final truncated = context.substring(0, config.maxTotalChars);
-    final marker = '\n\n... (总上下文已截断，原长度: ${context.length} 字符)';
     
-    print('[ContextManager] 总上下文截断: ${context.length} -> ${truncated.length + marker.length}');
-    
-    return truncated + marker;
+    _currentProject!.updatedAt = DateTime.now();
+    notifyListeners();
   }
-
-  /// 限制对话历史条数
-  List<T> limitHistory<T>(List<T> messages) {
-    if (messages.length <= config.maxHistoryMessages) {
-      return messages;
-    }
-
-    final limited = messages.skip(messages.length - config.maxHistoryMessages).toList();
-    print('[ContextManager] 限制对话历史: ${messages.length} -> ${limited.length}');
+  
+  /// 压缩对话（生成摘要）
+  Future<void> _compressConversation(Conversation conv) async {
+    if (conv.summary != null) return;
     
-    return limited;
+    // 简单实现：取所有消息拼接
+    final allContent = conv.messages.map((m) => '${m.role}: ${m.content}').join('\n');
+    
+    // TODO: 使用LLM生成真正的摘要
+    // 这里简单取前几条和后几条
+    final recent = conv.messages.take(5).map((m) => m.content).join('\n');
+    conv.summary = '[摘要] $recent ... (共${conv.messages.length}条消息)';
+    
+    // 只保留最近的
+    conv.messages = conv.messages.skip(conv.messages.length - KEEP_RECENT).toList();
+    
+    debugPrint('[ContextManager] 压缩对话: ${conv.id}');
   }
-
-  /// 计算上下文统计
-  ContextStats calculateStats({
-    required List<String> files,
-    required int historyCount,
-  }) {
-    int totalChars = 0;
-    int truncatedCount = 0;
-    final fileStats = <FileStats>[];
-
-    for (final file in files) {
-      final chars = file.length;
-      totalChars += chars;
+  
+  /// 搜索历史（知识库检索）
+  Future<List<SearchResult>> search(String query) async {
+    final results = <SearchResult>[];
+    
+    for (final project in _projects) {
+      // 搜索摘要
+      if (project.summary != null && 
+          project.summary!.toLowerCase().contains(query.toLowerCase())) {
+        results.add(SearchResult(
+          projectId: project.id,
+          projectName: project.name,
+          matchedText: project.summary!,
+          type: 'summary',
+        ));
+      }
       
-      if (chars > config.maxCharsPerFile) {
-        truncatedCount++;
+      // 搜索对话
+      for (final conv in project.conversations) {
+        for (final msg in conv.messages) {
+          if (msg.content.toLowerCase().contains(query.toLowerCase())) {
+            results.add(SearchResult(
+              projectId: project.id,
+              projectName: project.name,
+              matchedText: msg.content,
+              type: 'message',
+            ));
+          }
+        }
       }
     }
-
-    return ContextStats(
-      totalChars: totalChars,
-      fileCount: files.length,
-      truncatedCount: truncatedCount,
-      historyCount: historyCount,
-      maxHistory: config.maxHistoryMessages,
-      maxTotal: config.maxTotalChars,
-      isOverLimit: totalChars > config.maxTotalChars,
-    );
+    
+    return results;
   }
+  
+  /// 获取当前项目摘要
+  String? getCurrentSummary() => _currentProject?.summary;
 }
 
-/// 上下文统计
-class ContextStats {
-  final int totalChars;
-  final int fileCount;
-  final int truncatedCount;
-  final int historyCount;
-  final int maxHistory;
-  final int maxTotal;
-  final bool isOverLimit;
-
-  ContextStats({
-    required this.totalChars,
-    required this.fileCount,
-    required this.truncatedCount,
-    required this.historyCount,
-    required this.maxHistory,
-    required this.maxTotal,
-    required this.isOverLimit,
-  });
-
-  @override
-  String toString() {
-    return 'ContextStats(chars: $totalChars/$maxTotal, files: $fileCount, truncated: $truncatedCount, history: $historyCount/$maxHistory)';
-  }
-}
-
-/// 文件统计
-class FileStats {
-  final String name;
-  final int chars;
-  final bool isTruncated;
-
-  FileStats({
-    required this.name,
-    required this.chars,
-    required this.isTruncated,
+/// 搜索结果
+class SearchResult {
+  final String projectId;
+  final String projectName;
+  final String matchedText;
+  final String type;
+  
+  SearchResult({
+    required this.projectId,
+    required this.projectName,
+    required this.matchedText,
+    required this.type,
   });
 }
