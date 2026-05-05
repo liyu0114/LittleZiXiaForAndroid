@@ -37,7 +37,11 @@
 
 | ID | 任务 | 状态 | 备注 |
 |----|------|------|------|
-| L1-01 | 任务分解服务测试 | [ ] | task_decomposer_test.dart |
+| L1-01 | 任务分解服务测试 | ⚠️ 测试代码已写，待运行 | task_decomposer_test.dart |
+| L1-02 | 技能自造服务测试 | ⚠️ 测试代码已写，待运行 | skill_auto_creator_test.dart |
+| L1-03 | 本地模型服务测试 | ⚠️ 测试代码已写，待运行 | local_model_service_test.dart |
+| L1-04 | 超长上下文测试 | ⚠️ 测试代码已写，待运行 | context_manager_test.dart |
+| L1-05 | 断线重连测试 | ⚠️ 测试代码已写，待运行 | network_recovery_test.dart |
 | L1-02 | 技能自造服务测试 | [ ] | skill_auto_creator_test.dart |
 | L1-03 | 本地模型服务测试 | [ ] | local_model_service_test.dart |
 | L1-04 | 超长上下文测试 | [ ] | context_manager_test.dart |
@@ -46,10 +50,10 @@
 | L1-07 | HTTP代理测试 | [ ] | http_proxy_test.dart |
 | L1-08 | WebSocket测试 | [ ] | websocket_test.dart |
 | L1-09 | 游戏托管测试 | [ ] | game_timeout_test.dart |
-| L1-10 | 权限管理测试 | [ ] | permission_test.dart |
+| L1-10 | 权限管理测试 | ⚠️ 测试代码已写，待运行 | permission_test.dart |
 | L1-11 | 缓存管理测试 | [ ] | cache_test.dart |
 | L1-12 | 数据库测试 | [ ] | database_test.dart |
-| L1-13 | 记忆系统测试 | [ ] | memory_test.dart |
+| L1-13 | 记忆系统测试 | ⚠️ 测试代码已写，待运行 | memory_test.dart |
 | L1-14 | 情感计算测试 | [ ] | emotion_test.dart |
 | L1-15 | 自主学习测试 | [ ] | autonomous_learner_test.dart |
 
@@ -94,20 +98,20 @@
 
 | 时间 | ID | 结果 | 日志 |
 |------|-----|------|------|
-| 07:XX | L1-01 | ✅/❌ | XXX |
+| 07:08 | L1-01 | ⚠️ 测试代码已写，待运行 | 12个测试用例 |
+| 07:12 | L1-02 | ⚠️ 测试代码已写，待运行 | 10个测试用例 |
+| 07:13 | L1-10 | ⚠️ 测试代码已写，待运行 | 10个测试用例 |
+| 07:13 | L1-13 | ⚠️ 测试代码已写，待运行 | 8个测试用例 |
 
 ---
 
 ## 问题记录
 
-### 问题模板
-```
-### 问题X：XXX
-- 时间：2026-05-06
-- 任务ID：XXX
-- 原因：XXX
-- 建议：XXX
-```
+### 问题1：Flutter环境未找到
+- 时间：2026-05-06 07:08
+- 任务ID：L1-01
+- 原因：D:\flutter路径问题，flutter命令无法直接调用
+- 建议：在手机连接后通过真机测试验证
 
 ---
 
