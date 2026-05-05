@@ -162,9 +162,9 @@ const List<ProviderInfo> availableProviders = [
     id: 'ollama',
     name: 'Ollama (本地)',
     description: '本地运行的开源模型',
-    defaultBaseUrl: 'http://localhost:11434/v1',
+    defaultBaseUrl: 'http://[fd7a:115c:a1e0::7e01:cea4]:11435/v1',
     apiKeyPlaceholder: 'ollama',
-    defaultModels: ['qwen2.5-coder:7b', 'qwen2.5:7b', 'llama3', 'mistral', 'qwen2'],
+    defaultModels: ['qwen2.5-coder:7b', 'llama3', 'mistral', 'qwen2'],
   ),
   ProviderInfo(
     id: 'custom',

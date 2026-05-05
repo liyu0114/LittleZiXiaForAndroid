@@ -357,6 +357,19 @@ class AgentLoopServiceV2 extends ChangeNotifier {
           continue;
         }
 
+        // 检查是否真正完成了所有子任务（多任务场景）
+        if (!_checkAllSubTasksCompleted(task, aiContent)) {
+          debugPrint('[AgentLoopV2] ⚠️ 用户有多个子任务未完成，引导继续执行...');
+          messages.add(ChatMessage(
+            role: MessageRole.user,
+            content: '你似乎只完成了部分任务。'
+                '请检查用户的所有问题是否都已经回答完整。'
+                '如果有未完成的子任务，继续调用工具获取信息。'
+                '不要遗漏任何一个子任务！',
+          ));
+          continue; // 继续执行未完成的子任务
+        }
+
         // 真正完成任务
         _state = AgentState.completed;
         notifyListeners();
@@ -771,6 +784,60 @@ class AgentLoopServiceV2 extends ChangeNotifier {
     return giveUpPatterns.any((p) => lower.contains(p));
   }
 
+  /// 检测用户任务是否包含多个并列子任务，检查 LLM 是否都完成了
+  bool _checkAllSubTasksCompleted(String task, String response) {
+    if (task.isEmpty || response.isEmpty) return true;
+    
+    // 检测任务中的并列词（多个子任务）
+    final hasMultipleTasks = task.contains('和') || 
+                             task.contains('还') || 
+                             task.contains('也') ||
+                             (task.contains('？') && task.split('？').length > 2) ||
+                             (task.contains('?') && task.split('?').length > 2);
+    
+    if (!hasMultipleTasks) return true; // 单任务，直接通过
+    
+    // 提取任务中的关键实体
+    final entities = <String>[];
+    // 匹配"XXX的"或"XXX天气"等模式
+    final matches = RegExp(r'([\u4e00-\u9fa5]{2,6})(?:的|天气|怎么样|如何)').allMatches(task);
+    for (final match in matches) {
+      if (match.group(1) != null) {
+        entities.add(match.group(1)!);
+      }
+    }
+    
+    // 如果没有提取到实体，也可能是"北京上海"连在一起的情况
+    if (entities.length < 2) {
+      // 尝试直接匹配连续的城市名
+      final cityPattern = RegExp(r'([\u4e00-\u9fa5]{2,4})(?:和|还|也|，|、)([\u4e00-\u9fa5]{2,4})');
+      final cityMatches = cityPattern.allMatches(task);
+      for (final match in cityMatches) {
+        if (match.group(1) != null && !entities.contains(match.group(1))) {
+          entities.add(match.group(1)!);
+        }
+        if (match.group(2) != null && !entities.contains(match.group(2))) {
+          entities.add(match.group(2)!);
+        }
+      }
+    }
+    
+    // 如果有多个实体，检查回复中是否都提到了
+    if (entities.length >= 2) {
+      final responseLower = response.toLowerCase();
+      int foundCount = 0;
+      for (final entity in entities) {
+        if (responseLower.contains(entity.toLowerCase())) {
+          foundCount++;
+        }
+      }
+      // 至少要覆盖80%的实体才算完成
+      return foundCount >= entities.length * 0.8;
+    }
+    
+    return true; // 无法判断，默认通过
+  }
+
   // ==================== 兜底回复 ====================
 
   /// 从已收集的信息中构建兜底回复
@@ -829,6 +896,19 @@ class AgentLoopServiceV2 extends ChangeNotifier {
 - 用户想要什么结果？
 - 需要哪些信息才能给出答案？
 - 有没有隐含的依赖（如位置、时间、上下文）？
+- **特别检查：用户问题是否包含多个并列的子任务**（如"北京和上海的天气"、"A和B分别是？"）
+  - 如果是，必须**分别**获取每个子任务的信息，**不能只回答一个**
+
+### Step 2: 任务规划（重要！）
+- 在开始执行之前，先列出完整的执行计划：
+  ```
+  计划：
+  1. [工具名] 获取XXX信息
+  2. [工具名] 获取YYY信息
+  3. 合并结果，给出完整答案
+  ```
+- **只有完成了所有子任务后才能给最终答案**
+- 如果某个子任务失败，需要重试或换方法，直到所有子任务都完成
 
 ### Step 2: 检查工具
 - 查看下面的可用工具列表

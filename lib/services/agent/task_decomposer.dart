@@ -311,3 +311,126 @@ class TaskDecomposer extends ChangeNotifier {
     notifyListeners();
   }
 }
+
+// ==================== 新增：任务锁 ====================
+
+/// 任务锁 - 防止并发执行
+class TaskLock {
+  String? _inProgressTaskId;
+  
+  /// 尝试获取任务锁
+  bool tryAcquire(String taskId) {
+    if (_inProgressTaskId != null) return false;
+    _inProgressTaskId = taskId;
+    return true;
+  }
+  
+  /// 释放任务锁
+  void release() {
+    _inProgressTaskId = null;
+  }
+  
+  /// 检查是否有任务在执行
+  bool get isLocked => _inProgressTaskId != null;
+  
+  /// 获取当前任务ID
+  String? get currentTaskId => _inProgressTaskId;
+}
+
+// ==================== 新增：消息缓冲 ====================
+
+/// 消息缓冲 - 合并每轮的输出
+class RoundBuffer {
+  final StringBuffer _buffer = StringBuffer();
+  
+  /// 添加内容到缓冲
+  void add(String content) {
+    if (content.isNotEmpty()) {
+      _buffer.write(content);
+    }
+  }
+  
+  /// 获取并清空缓冲内容
+  String flush() {
+    final content = _buffer.toString().trim();
+    _buffer.clear();
+    return content;
+  }
+  
+  /// 获取内容但不清空
+  String get content => _buffer.toString();
+  
+  /// 是否为空
+  bool get isEmpty => _buffer.isEmpty;
+  
+  /// 清空
+  void clear() {
+    _buffer.clear();
+  }
+}
+
+// ==================== 新增：执行回调 ====================
+
+/// 任务执行回调 - 参考ClawX设计
+abstract class TaskCallback {
+  /// 每轮开始
+  void onLoopStart(int round);
+  
+  /// 内容输出
+  void onContent(int round, String content);
+  
+  /// 工具调用
+  void onToolCall(int round, String toolId, String toolName, Map<String, dynamic> parameters);
+  
+  /// 工具结果
+  void onToolResult(int round, String toolId, String toolName, Map<String, dynamic> result);
+  
+  /// 完成
+  void onComplete(String finalAnswer, int totalTokens);
+  
+  /// 错误
+  void onError(String error, int totalTokens);
+}
+
+// ==================== 新增：任务执行器 ====================
+
+/// 任务执行器 - 整合任务锁、缓冲、回调
+class TaskExecutor {
+  final LLMProvider _llmProvider;
+  final TaskLock _taskLock = TaskLock();
+  final RoundBuffer _roundBuffer = RoundBuffer();
+  
+  TaskExecutor({required LLMProvider llmProvider}) : _llmProvider = llmProvider;
+  
+  /// 执行任务（带锁）
+  Future<String> executeTask(String task, TaskCallback callback) async {
+    // 尝试获取任务锁
+    if (!_taskLock.tryAcquire(task.hashCode.toString())) {
+      return '任务已在执行中';
+    }
+    
+    try {
+      // 执行回调：开始
+      callback.onLoopStart(1);
+      
+      // TODO: 实现完整执行逻辑
+      // 1. 调用LLM执行任务
+      // 2. 处理工具调用
+      // 3. 缓冲输出
+      // 4. 回调结果
+      
+      return '执行完成';
+    } catch (e) {
+      callback.onError(e.toString(), 0);
+      return '执行失败: $e';
+    } finally {
+      _taskLock.release();
+    }
+  }
+  
+  /// 刷新缓冲 - 发送缓冲的消息
+  Future<String> flushBuffer() async {
+    final content = _roundBuffer.flush();
+    return content;
+  }
+}

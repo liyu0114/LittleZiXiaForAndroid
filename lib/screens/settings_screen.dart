@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/app_state.dart';
 import '../services/llm/llm_base.dart';
+import '../config/app_version.dart';
 import 'memory_search_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -120,7 +121,7 @@ class SettingsScreen extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.info_outline),
                 title: const Text('小紫霞'),
-                subtitle: const Text('版本 1.0.124 (Build 144)'),
+                subtitle: Text('版本 ${AppVersion.version} (Build ${AppVersion.buildNumber})'),
                 onTap: () => _showAboutDialog(context),
               ),
               ListTile(
@@ -130,7 +131,7 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => showLicensePage(
                   context: context,
                   applicationName: '小紫霞',
-                  applicationVersion: '1.0.124 (Build 144)',
+                  applicationVersion: '${AppVersion.version} (Build ${AppVersion.buildNumber})',
                 ),
               ),
               ListTile(
@@ -263,7 +264,7 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (context) => AboutDialog(
         applicationName: '小紫霞',
-        applicationVersion: '1.0.124 (Build 144)',
+        applicationVersion: '${AppVersion.version} (Build ${AppVersion.buildNumber})',
         applicationIcon:
             const Text('💜', style: TextStyle(fontSize: 48)),
         children: const [

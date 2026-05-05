@@ -104,10 +104,16 @@ class OpenAIProvider extends LLMProvider {
     return 4096;
   }
 
-  Map<String, String> get _headers => {
-        'Authorization': 'Bearer ${config.apiKey}',
-        'Content-Type': 'application/json',
-      };
+  Map<String, String> get _headers {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+    // 只有在有 API key 的情况下才添加 Authorization
+    if (config.apiKey != null && config.apiKey.isNotEmpty) {
+      headers['Authorization'] = 'Bearer ${config.apiKey}';
+    }
+    return headers;
+  }
 
   @override
   Future<LLMResponse> chat(
@@ -115,14 +121,63 @@ class OpenAIProvider extends LLMProvider {
     List<ToolDefinition>? tools,
   }) async {
     final body = _buildRequestBody(messages, tools, stream: false);
-
-    final response = await _client.post(
-      Uri.parse('$_baseUrl/chat/completions'),
-      headers: _headers,
-      body: jsonEncode(body),
-    ).timeout(const Duration(seconds: 60));
+    
+    // 详细日志：请求准备
+    print('========== LLM 请求开始 ==========');
+    print('[1/6] URL: $_baseUrl/chat/completions');
+    print('[2/6] Model: ${body['model']}');
+    print('[3/6] Messages count: ${messages.length}');
+    print('[4/6] Headers: $_headers');
+    print('[5/6] Request body: ${jsonEncode(body).substring(0, 200)}...');
+    print('[6/6] 开始发送请求...');
+    
+    final startTime = DateTime.now();
+    
+    late final http.Response response;
+    try {
+      // 连接开始
+      print('[LLM] 📡 正在连接...');
+      
+      response = await _client.post(
+        Uri.parse('$_baseUrl/chat/completions'),
+        headers: _headers,
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 600));
+      
+      // 连接成功
+      final connectTime = DateTime.now().difference(startTime);
+      print('[LLM] ✅ 连接成功 (耗时: ${connectTime.inMilliseconds}ms)');
+      print('[LLM] 📥 收到响应 statusCode: ${response.statusCode}');
+      
+    } on TimeoutException {
+      final elapsed = DateTime.now().difference(startTime);
+      print('[LLM] ⏱️ 请求超时 (已等待: ${elapsed.inSeconds}秒)');
+      print('[LLM] 💡 提示: 网络延迟高或服务器响应慢');
+      rethrow;
+    } on SocketException catch (e) {
+      final elapsed = DateTime.now().difference(startTime);
+      print('[LLM] 🌐 Socket异常 (耗时: ${elapsed.inMilliseconds}ms)');
+      print('[LLM] ❌ 错误: ${e.runtimeType}');
+      print('[LLM] 📍 地址: ${e.address?.address ?? "未知"}');
+      print('[LLM] 🔌 端口: ${e.port ?? "未知"}');
+      print('[LLM] 💬 消息: ${e.message}');
+      print('[LLM] 🔍 errno: ${e.osError?.errorCode} - ${e.osError?.message}');
+      rethrow;
+    } catch (e, st) {
+      final elapsed = DateTime.now().difference(startTime);
+      print('[LLM] ❌ 未知异常 (耗时: ${elapsed.inMilliseconds}ms)');
+      print('[LLM] ❌ 类型: ${e.runtimeType}');
+      print('[LLM] ❌ 内容: $e');
+      print('[LLM] 📚 Stack: $st');
+      rethrow;
+    }
+    
+    final elapsed = DateTime.now().difference(startTime);
+    print('[LLM] ⏱️ 总耗时: ${elapsed.inSeconds}秒 ${elapsed.inMilliseconds % 1000}ms');
 
     if (response.statusCode != 200) {
+      print('[LLM] ❌ HTTP错误: ${response.statusCode}');
+      print('[LLM] ❌ 响应内容: ${response.body}');
       throw LLMException(
         'OpenAI API error: ${response.statusCode} - ${response.body}',
       );
@@ -131,6 +186,8 @@ class OpenAIProvider extends LLMProvider {
     final data = jsonDecode(response.body);
     final choice = data['choices'][0];
 
+    print('[LLM] ✅ 请求成功完成!');
+    
     return LLMResponse(
       content: choice['message']['content'] ?? '',
       finishReason: choice['finish_reason'],
@@ -147,6 +204,10 @@ class OpenAIProvider extends LLMProvider {
   }) async* {
     final body = _buildRequestBody(messages, tools, stream: true);
 
+    print('[OpenAI Stream] 发送流式请求 - URL: $_baseUrl/chat/completions, Model: ${body['model']}');
+    print('[OpenAI Stream] Request body: ${jsonEncode(body).substring(0, 200)}...');
+    final startTime = DateTime.now();
+
     final request = http.Request(
       'POST',
       Uri.parse('$_baseUrl/chat/completions'),
@@ -154,10 +215,32 @@ class OpenAIProvider extends LLMProvider {
     request.headers.addAll(_headers);
     request.body = jsonEncode(body);
 
-    final response = await _client.send(request).timeout(const Duration(seconds: 120));
+    print('[OpenAI Stream] 发送请求...');
+    
+    late final http.StreamedResponse response;
+    try {
+      response = await _client.send(request).timeout(const Duration(seconds: 600));
+    } on TimeoutException {
+      print('[OpenAI Stream] ⏱️ 请求超时');
+      yield StreamEvent.error('请求超时');
+      return;
+    } on SocketException catch (e) {
+      print('[OpenAI Stream] 🌐 Socket 错误: ${e.message}');
+      yield StreamEvent.error('网络错误: ${e.message}');
+      return;
+    } catch (e) {
+      print('[OpenAI Stream] ❌ 发送请求异常: ${e.runtimeType} - $e');
+      yield StreamEvent.error('异常: ${e.runtimeType} - $e');
+      return;
+    }
+
+    print('[OpenAI Stream] 请求已发送，等待响应...');
+    final elapsed = DateTime.now().difference(startTime);
+    print('[OpenAI Stream] 收到响应状态: ${response.statusCode} (耗时: ${elapsed.inSeconds}秒)');
 
     if (response.statusCode != 200) {
       final error = await response.stream.bytesToString();
+      print('[OpenAI Stream] 错误: $error');
       yield StreamEvent.error('OpenAI API error: ${response.statusCode} - $error');
       return;
     }
@@ -262,12 +345,12 @@ class OpenAIProvider extends LLMProvider {
     try {
       final url = '$_baseUrl/models';
       print('[OpenAI] Testing connection to: $url');
-      print('[OpenAI] Using API Key: ${config.apiKey.substring(0, 10)}...');
+      print('[OpenAI] Using API Key: ${config.apiKey.length >= 10 ? config.apiKey.substring(0, 10) : config.apiKey}...');
       
       final response = await _client.get(
         Uri.parse(url),
         headers: _headers,
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 60));
       
       print('[OpenAI] Response status: ${response.statusCode}');
       

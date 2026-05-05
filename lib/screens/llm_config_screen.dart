@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../services/llm/llm_base.dart';
@@ -15,10 +16,10 @@ class LLMConfigScreen extends StatefulWidget {
 class _LLMConfigScreenState extends State<LLMConfigScreen> {
   final _formKey = GlobalKey<FormState>();
   
-  // 默认配置：Ollama + 本地
+  // 默认配置：Ollama + Mac Tailscale IP
   String _selectedProvider = 'ollama';
   final _apiKeyController = TextEditingController(text: 'ollama');
-  final _baseUrlController = TextEditingController(text: 'http://localhost:11434/v1');
+  final _baseUrlController = TextEditingController(text: 'http://[fd7a:115c:a1e0::7e01:cea4]:11435/v1');
   String _selectedModel = 'qwen2.5-coder:7b';
   double _temperature = 0.7;
   int _maxTokens = 4096;
@@ -74,6 +75,9 @@ class _LLMConfigScreenState extends State<LLMConfigScreen> {
       }
     }
     
+    // 获取当前提供商信息（用于后续检查模型合法性）
+    final currentProvider = LLMFactory.getProviderInfo(_selectedProvider);
+    
     // 特殊处理：Qwen 默认使用 qwen-plus
     if (_selectedProvider == 'qwen' && _selectedModel.isEmpty) {
       _selectedModel = 'qwen-plus';
@@ -87,6 +91,14 @@ class _LLMConfigScreenState extends State<LLMConfigScreen> {
     // 特殊处理：GLM 默认使用 glm-5
     if (_selectedProvider == 'glm' && _selectedModel.isEmpty) {
       _selectedModel = 'glm-5';
+    }
+    
+    // 【重要】检查当前模型的合法性，如果不在列表中则使用默认值
+    if (currentProvider != null && !currentProvider.defaultModels.contains(_selectedModel)) {
+      print('[DEBUG] ⚠️ 保存的模型 "$_selectedModel" 不在当前列表中，将使用默认模型');
+      if (currentProvider.defaultModels.isNotEmpty) {
+        _selectedModel = currentProvider.defaultModels.first;
+      }
     }
     
     print('[DEBUG] _loadConfig() 完成');
@@ -434,7 +446,7 @@ class _LLMConfigScreenState extends State<LLMConfigScreen> {
       
       print('[DEBUG] 配置信息:');
       print('  - 提供商: ${config.provider}');
-      print('  - API Key: ${config.apiKey.substring(0, 10)}...');
+      print('  - API Key: ${config.apiKey.length >= 10 ? config.apiKey.substring(0, 10) : config.apiKey}...');
       print('  - Base URL: ${config.baseUrl ?? "默认"}');
       print('  - 模型: ${config.model}');
       print('  - Temperature: ${config.temperature}');
@@ -446,8 +458,30 @@ class _LLMConfigScreenState extends State<LLMConfigScreen> {
       print('[DEBUG] Provider 类型: ${provider.runtimeType}');
       print('[DEBUG] Provider 名称: ${provider.name}');
 
+      // ========== DEBUG: 网络连通性测试 ==========
+      print('[DEBUG] 步骤 3: 测试网络连通性...');
+      print('[DEBUG] Base URL: ${_baseUrlController.text}');
+      try {
+        final testUrl = _baseUrlController.text
+            .replaceAll('/v1', '/api/tags')
+            .replaceAll('/chat/completions', '/api/tags')
+            .replaceAll('https://', 'http://')
+            .replaceAll('http://', 'http://');
+        
+        print('[DEBUG] 测试URL: $testUrl');
+        
+        final testClient = http.Client();
+        final testResponse = await testClient.get(
+          Uri.parse(testUrl),
+        ).timeout(const Duration(seconds: 10));
+        print('[DEBUG] 网络连通性测试: HTTP ${testResponse.statusCode}');
+        testClient.close();
+      } catch (e) {
+        print('[DEBUG] 网络连通性测试失败: $e');
+      }
+      
       // ========== DEBUG: 验证配置 ==========
-      print('[DEBUG] 步骤 3: 验证配置（调用 API）');
+      print('[DEBUG] 步骤 4: 验证配置（调用 API）');
       print('[DEBUG] 这将发送一个测试请求到 LLM API...');
       final success = await provider.validateConfig();
       

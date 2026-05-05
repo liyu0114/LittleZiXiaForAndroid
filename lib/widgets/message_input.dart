@@ -73,9 +73,9 @@ class _MessageInputState extends State<MessageInput> {
     try {
       final XFile? image = await _picker.pickImage(
         source: source,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 85,
+        maxWidth: 2048,  // 提高到 2K 分辨率
+        maxHeight: 2048,
+        imageQuality: 95,  // 提高质量
       );
       if (image != null) {
         setState(() {
@@ -98,7 +98,7 @@ class _MessageInputState extends State<MessageInput> {
     try {
       final XFile? video = await _picker.pickVideo(
         source: ImageSource.gallery,
-        maxDuration: const Duration(seconds: 15),
+        maxDuration: const Duration(seconds: 60),  // 增加到60秒
       );
       if (video != null) {
         final file = File(video.path);

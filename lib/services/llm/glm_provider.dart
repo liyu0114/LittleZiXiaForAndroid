@@ -260,7 +260,7 @@ class GLMProvider extends LLMProvider {
       // 使用用户实际选择的模型进行测试
       final url = '$_baseUrl/chat/completions';
       print('[GLM] Testing connection to: $url');
-      print('[GLM] Using API Key: ${config.apiKey.substring(0, 10)}...');
+      print('[GLM] Using API Key: ${config.apiKey.length >= 10 ? config.apiKey.substring(0, 10) : config.apiKey}...');
       print('[GLM] Testing model: ${config.model}');
       
       final response = await _client.post(

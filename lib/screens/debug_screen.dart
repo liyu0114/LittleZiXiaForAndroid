@@ -311,7 +311,22 @@ class _DebugScreenState extends State<DebugScreen> {
                 Text('共 ${logs.length} 条', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline)),
                 const SizedBox(width: 8),
                 TextButton(
-                  onPressed: () => setState(() => _llmLogger.clearLogs()),
+                  onPressed: () {
+                    setState(() => _llmLogger.clearLogs());
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Row(
+                          children: [
+                            Icon(Icons.delete_sweep, color: Colors.white, size: 20),
+                            SizedBox(width: 8),
+                            Text('日志已清空'),
+                          ],
+                        ),
+                        backgroundColor: Colors.orange,
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  },
                   child: const Text('清空'),
                 ),
               ],
@@ -415,15 +430,69 @@ class _DebugScreenState extends State<DebugScreen> {
                     const Spacer(),
                     TextButton(
                       onPressed: () {
+                        // 导出为易读文本格式
+                        final textBuffer = StringBuffer();
+                        textBuffer.writeln('=== LLM 调试日志 ===');
+                        textBuffer.writeln('生成时间: ${DateTime.now()}');
+                        textBuffer.writeln('总共 ${_llmLogger.logs.length} 条日志');
+                        textBuffer.writeln('===========================================\n');
+                        
+                        for (final log in _llmLogger.logs) {
+                          final timeStr = log.time.toString().substring(11, 19);
+                          final typeStr = log.type.padRight(8);
+                          textBuffer.writeln('[$timeStr] [$typeStr] ${log.provider}/${log.model}');
+                          if (log.type == 'request' && log.data['lastMessage'] != null) {
+                            textBuffer.writeln('  → ${log.data['lastMessage']}');
+                          } else if (log.type == 'response' && log.data['content'] != null) {
+                            final content = log.data['content'].toString();
+                            textBuffer.writeln('  ← ${content.length > 100 ? content.substring(0, 100) + '...' : content}');
+                          } else if (log.type == 'error') {
+                            textBuffer.writeln('  ✗ ${log.data['error']}');
+                          }
+                          textBuffer.writeln('');
+                        }
+                        
+                        Clipboard.setData(ClipboardData(text: textBuffer.toString()));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Row(
+                              children: [
+                                Icon(Icons.check_circle, color: Colors.white, size: 20),
+                                SizedBox(width: 8),
+                                Text('日志已复制到剪贴板'),
+                              ],
+                            ),
+                            backgroundColor: Colors.green.shade700,
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      child: const Text('复制文本'),
+                    ),
+                    TextButton(
+                      onPressed: () {
                         Clipboard.setData(ClipboardData(text: _llmLogger.exportToJson()));
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('日志已复制到剪贴板')),
+                          SnackBar(
+                            content: const Row(
+                              children: [
+                                Icon(Icons.check_circle, color: Colors.white, size: 20),
+                                SizedBox(width: 8),
+                                Text('JSON 已复制到剪贴板'),
+                              ],
+                            ),
+                            backgroundColor: Colors.green.shade700,
+                            duration: const Duration(seconds: 2),
+                          ),
                         );
                       },
                       child: const Text('复制 JSON'),
                     ),
                     TextButton(
                       onPressed: () => Navigator.pop(context),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.orange,
+                      ),
                       child: const Text('关闭'),
                     ),
                   ],

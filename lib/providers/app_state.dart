@@ -966,7 +966,16 @@ class AppState extends ChangeNotifier {
 
       int maxRetries = 2; // 每个子任务最多重试2次
 
+      debugPrint('[AppState] ===== 开始执行子任务循环 =====');
+      debugPrint('[AppState] 任务总数: ${plan.subtasks.length}');
+
       while (!plan.isCompleted) {
+        // 更新进度显示（每次循环开始时）
+        final pendingCount = currentSteps.where((s) => s.status == 'pending').length;
+        final runningCount = currentSteps.where((s) => s.status == 'running').length;
+        final completedCount = currentSteps.where((s) => s.status == 'completed').length;
+        debugPrint('[AppState] 进度: pending=$pendingCount, running=$runningCount, completed=$completedCount');
+        _updateAgentMessage(msgIndex, '📊 进度: $completedCount/${currentSteps.length - 1} 步骤完成', steps: currentSteps);
         final nextTask = plan.getNextExecutable();
         if (nextTask == null) {
           // 检查是否有失败的子任务可以重试
@@ -991,20 +1000,27 @@ class AppState extends ChangeNotifier {
         // 标记当前步骤为运行中
         _updateStepStatus(currentSteps, nextTask.id, 'running');
         _updateAgentMessage(msgIndex, '⚡ 执行: ${nextTask.description}', steps: currentSteps);
+        
+        debugPrint('[AppState] 开始执行子任务: ${nextTask.description}');
 
         // 执行子任务
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
+          debugPrint('[AppState] 子任务尝试 ${attempt + 1}/${maxRetries + 1}');
           try {
             final result = await _agentLoopV2.execute(nextTask.description);
+            
+            debugPrint('[AppState] 子任务执行完成: success=${result.success}');
 
             if (result.success) {
               plan.markCompleted(nextTask.id, result.content);
               _updateStepStatus(currentSteps, nextTask.id, 'completed', result: result.content);
+              debugPrint('[AppState] 子任务标记为 completed');
               break;
             } else {
               // 失败
+              debugPrint('[AppState] 子任务失败: ${result.error}');
               if (attempt < maxRetries) {
-                debugPrint('[AppState] 子任务 ${nextTask.id} 失败 (${attempt+1}/${maxRetries+1})，重试...');
+                debugPrint('[AppState] 准备重试...');
                 _updateStepStatus(currentSteps, nextTask.id, 'retrying', error: result.error);
                 _updateAgentMessage(msgIndex,
                   '🔁 子任务失败，重试 (${attempt+1}/${maxRetries}): ${nextTask.description}',
@@ -1031,10 +1047,11 @@ class AppState extends ChangeNotifier {
         }
 
         // 更新进度显示
-        final completedCount = currentSteps.where((s) => s.status == 'completed').length;
+        final newCompletedCount = currentSteps.where((s) => s.status == 'completed').length;
         final totalSteps = currentSteps.length;
+        debugPrint('[AppState] 循环结束进度: $newCompletedCount/$totalSteps');
         _updateAgentMessage(msgIndex,
-          '📊 进度: $completedCount/$totalSteps 步骤完成',
+          '📊 进度: $newCompletedCount/$totalSteps 步骤完成',
           steps: currentSteps);
       }
 

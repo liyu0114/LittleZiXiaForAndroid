@@ -1,10 +1,11 @@
 // 传感器服务
 //
-// 加速度计、陀螺仪、磁力计等
+// 加速度计、陀螺仪、磁力计、GPS等
 
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'package:geolocator/geolocator.dart';
 import 'dart:async';
 
 /// 传感器数据
@@ -27,6 +28,28 @@ class SensorData {
   String toString() => 'SensorData(x: $x, y: $y, z: $z, mag: $magnitude)';
 }
 
+/// 位置数据
+class LocationData {
+  final double latitude;
+  final double longitude;
+  final double? altitude;
+  final double? accuracy;
+  final double? speed;
+  final DateTime timestamp;
+
+  LocationData({
+    required this.latitude,
+    required this.longitude,
+    this.altitude,
+    this.accuracy,
+    this.speed,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() => 'LocationData(lat: $latitude, lon: $longitude)';
+}
+
 /// 传感器服务
 class SensorService extends ChangeNotifier {
   // 加速度计
@@ -45,10 +68,20 @@ class SensorService extends ChangeNotifier {
   SensorData? _userAccelerometerData;
   StreamSubscription? _userAccelerometerSubscription;
 
+  // 气压计
+  double? _barometerData;
+  StreamSubscription? _barometerSubscription;
+
+  // GPS 位置
+  LocationData? _locationData;
+  StreamSubscription? _locationSubscription;
+
   SensorData? get accelerometerData => _accelerometerData;
   SensorData? get gyroscopeData => _gyroscopeData;
   SensorData? get magnetometerData => _magnetometerData;
   SensorData? get userAccelerometerData => _userAccelerometerData;
+  double? get barometerData => _barometerData;
+  LocationData? get locationData => _locationData;
 
   /// 开始监听加速度计
   void startAccelerometer({Duration interval = const Duration(milliseconds: 100)}) {
@@ -138,6 +171,113 @@ class SensorService extends ChangeNotifier {
     debugPrint('[Sensor] 停止监听用户加速度');
   }
 
+  /// 开始监听气压计
+  void startBarometer({Duration interval = const Duration(milliseconds: 100)}) {
+    _barometerSubscription?.cancel();
+    _barometerSubscription = barometerEventStream().listen((event) {
+      _barometerData = event.pressure;
+      notifyListeners();
+    });
+    debugPrint('[Sensor] 开始监听气压计');
+  }
+
+  /// 停止监听气压计
+  void stopBarometer() {
+    _barometerSubscription?.cancel();
+    _barometerSubscription = null;
+    debugPrint('[Sensor] 停止监听气压计');
+  }
+
+  /// 开始监听 GPS
+  Future<void> startLocation({int distanceFilter = 10}) async {
+    // 检查权限
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        debugPrint('[Sensor] GPS 权限被拒绝');
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      debugPrint('[Sensor] GPS 权限被永久拒绝');
+      return;
+    }
+
+    // 检查定位服务是否开启
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      debugPrint('[Sensor] GPS 服务未开启');
+      return;
+    }
+
+    _locationSubscription?.cancel();
+    _locationSubscription = Geolocator.getPositionStream(
+      locationSettings: LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: distanceFilter,
+      ),
+    ).listen((position) {
+      _locationData = LocationData(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        altitude: position.altitude,
+        accuracy: position.accuracy,
+        speed: position.speed,
+        timestamp: DateTime.now(),
+      );
+      notifyListeners();
+    });
+    debugPrint('[Sensor] 开始监听 GPS');
+  }
+
+  /// 停止监听 GPS
+  void stopLocation() {
+    _locationSubscription?.cancel();
+    _locationSubscription = null;
+    debugPrint('[Sensor] 停止监听 GPS');
+  }
+
+  /// 获取当前位置（单次）
+  Future<LocationData?> getCurrentLocation() async {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return null;
+      }
+
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        return null;
+      }
+
+      Position position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+
+      return LocationData(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        altitude: position.altitude,
+        accuracy: position.accuracy,
+        speed: position.speed,
+        timestamp: DateTime.now(),
+      );
+    } catch (e) {
+      debugPrint('[Sensor] 获取位置失败: $e');
+      return null;
+    }
+  }
+
   /// 检测摇晃
   bool detectShake({double threshold = 20.0}) {
     if (_userAccelerometerData == null) return false;
@@ -198,6 +338,25 @@ class SensorService extends ChangeNotifier {
       buffer.writeln('设备倾斜: ${tilt.toStringAsFixed(1)}°');
     }
 
+    if (_barometerData != null) {
+      buffer.writeln('气压: ${_barometerData!.toStringAsFixed(2)} hPa');
+    }
+
+    if (_locationData != null) {
+      buffer.writeln('GPS 位置:');
+      buffer.writeln('  纬度: ${_locationData!.latitude.toStringAsFixed(6)}');
+      buffer.writeln('  经度: ${_locationData!.longitude.toStringAsFixed(6)}');
+      if (_locationData!.altitude != null) {
+        buffer.writeln('  海拔: ${_locationData!.altitude!.toStringAsFixed(1)} m');
+      }
+      if (_locationData!.accuracy != null) {
+        buffer.writeln('  精度: ±${_locationData!.accuracy!.toStringAsFixed(0)} m');
+      }
+      if (_locationData!.speed != null) {
+        buffer.writeln('  速度: ${(_locationData!.speed! * 3.6).toStringAsFixed(1)} km/h');
+      }
+    }
+
     return buffer.toString();
   }
 
@@ -207,6 +366,8 @@ class SensorService extends ChangeNotifier {
     stopGyroscope();
     stopMagnetometer();
     stopUserAccelerometer();
+    stopBarometer();
+    stopLocation();
     super.dispose();
   }
 }

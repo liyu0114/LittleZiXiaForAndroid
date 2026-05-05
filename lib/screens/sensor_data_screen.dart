@@ -17,6 +17,8 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
   bool _accelerometerEnabled = false;
   bool _gyroscopeEnabled = false;
   bool _magnetometerEnabled = false;
+  bool _barometerEnabled = false;
+  bool _locationEnabled = false;
 
   @override
   void initState() {
@@ -42,6 +44,9 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              // ===== 运动传感器 =====
+              const _SectionHeader(title: '运动传感器', icon: Icons.directions_run),
+
               // 加速度计
               _buildSensorCard(
                 '加速度计',
@@ -104,6 +109,55 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
                 },
                 appState.sensorService.magnetometerData,
                 'μT',
+              ),
+
+              const SizedBox(height: 24),
+
+              // ===== 环境传感器 =====
+              const _SectionHeader(title: '环境传感器', icon: Icons.wb_sunny),
+
+              // 气压计
+              _buildSingleValueSensorCard(
+                '气压计',
+                '测量大气压力（可计算海拔）',
+                Icons.speed,
+                _barometerEnabled,
+                (value) {
+                  setState(() {
+                    _barometerEnabled = value;
+                    if (value) {
+                      appState.sensorService.startBarometer();
+                    } else {
+                      appState.sensorService.stopBarometer();
+                    }
+                  });
+                },
+                appState.sensorService.barometerData,
+                'hPa',
+              ),
+
+              const SizedBox(height: 24),
+
+              // ===== 位置传感器 =====
+              const _SectionHeader(title: '位置传感器', icon: Icons.location_on),
+
+              // GPS
+              _buildLocationCard(
+                'GPS（北斗）',
+                '获取经纬度、海拔、速度等',
+                Icons.gps_fixed,
+                _locationEnabled,
+                (value) {
+                  setState(() {
+                    _locationEnabled = value;
+                    if (value) {
+                      appState.sensorService.startLocation();
+                    } else {
+                      appState.sensorService.stopLocation();
+                    }
+                  });
+                },
+                appState.sensorService.locationData,
               ),
 
               const SizedBox(height: 24),
@@ -192,12 +246,122 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
     );
   }
 
+  Widget _buildSingleValueSensorCard(
+    String title,
+    String description,
+    IconData icon,
+    bool enabled,
+    Function(bool) onToggle,
+    double? data,
+    String unit,
+  ) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 24),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Switch(
+                  value: enabled,
+                  onChanged: onToggle,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              description,
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
+            ),
+            if (enabled && data != null) ...[
+              const Divider(),
+              const SizedBox(height: 8),
+              Text(
+                '当前值: ${data.toStringAsFixed(1)} $unit',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLocationCard(
+    String title,
+    String description,
+    IconData icon,
+    bool enabled,
+    Function(bool) onToggle,
+    dynamic data,
+  ) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 24),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Switch(
+                  value: enabled,
+                  onChanged: onToggle,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              description,
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
+            ),
+            if (enabled && data != null) ...[
+              const Divider(),
+              const SizedBox(height: 8),
+              _buildLocationDisplay(data),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildDataDisplay(dynamic data, String unit) {
     if (data == null) {
       return const Text('等待数据...');
     }
 
-    // 假设 data 有 x, y, z 属性
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -216,12 +380,93 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
     );
   }
 
+  Widget _buildLocationDisplay(dynamic data) {
+    if (data == null) {
+      return const Text('等待定位...');
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildLocationRow('纬度', '${data.latitude.toStringAsFixed(6)}°'),
+        _buildLocationRow('经度', '${data.longitude.toStringAsFixed(6)}°'),
+        if (data.altitude != null)
+          _buildLocationRow('海拔', '${data.altitude!.toStringAsFixed(1)} m'),
+        if (data.accuracy != null)
+          _buildLocationRow('精度', '±${data.accuracy!.toStringAsFixed(0)} m'),
+        if (data.speed != null)
+          _buildLocationRow('速度', '${(data.speed! * 3.6).toStringAsFixed(1)} km/h'),
+        const SizedBox(height: 8),
+        ElevatedButton.icon(
+          onPressed: () async {
+            final appState = Provider.of<AppState>(context, listen: false);
+            final location = await appState.sensorService.getCurrentLocation();
+            if (location != null && mounted) {
+              setState(() {});
+            }
+          },
+          icon: const Icon(Icons.my_location),
+          label: const Text('重新定位'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLocationRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Text(
+            '$label: ',
+            style: const TextStyle(color: Colors.grey),
+          ),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     final appState = Provider.of<AppState>(context, listen: false);
     appState.sensorService.stopAccelerometer();
     appState.sensorService.stopGyroscope();
     appState.sensorService.stopMagnetometer();
+    appState.sensorService.stopBarometer();
+    appState.sensorService.stopLocation();
     super.dispose();
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final IconData icon;
+
+  const _SectionHeader({required this.title, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: Theme.of(context).primaryColor),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).primaryColor,
+            ),
+          ),
+          const Expanded(child: SizedBox()),
+        ],
+      ),
+    );
   }
 }
