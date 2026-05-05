@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeNotificationStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagReportViewIds|flagIncludeNotImportantViews"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="false"
+    android:description="@string/accessibility_service_description"
+    android:notificationTimeout="100"
+    android:settingsActivity="com.littlezixia.openclaw_app.MainActivity">
+    
+    <!-- 
+    无障碍服务配置说明：
+    
+    accessibilityEventTypes: 监听的事件类型
+    - typeWindowStateChanged: 窗口状态改变
+    - typeWindowContentChanged: 窗口内容改变
+    - typeNotificationStateChanged: 通知状态改变
+    
+    accessibilityFeedbackType: 反馈类型
+    - feedbackGeneric: 通用反馈
+    
+    accessibilityFlags: 服务标志
+    - flagDefault: 默认标志
+    - flagReportViewIds: 报告视图 ID
+    - flagIncludeNotImportantViews: 包含不重要的视图
+    
+    canPerformGestures: 是否可以执行手势（点击、滑动等）
+    canRetrieveWindowContent: 是否可以获取窗口内容
+    canTakeScreenshot: 是否可以截图（需要额外权限）
+    
+    notificationTimeout: 通知超时时间（毫秒）
+    settingsActivity: 设置界面（指向 Flutter MainActivity）
+    -->
+</accessibility-service>

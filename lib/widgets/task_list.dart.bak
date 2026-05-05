@@ -1,0 +1,123 @@
+import 'package:flutter/material.dart';
+import 'package:little_zixia_sdk/little_zixia_sdk.dart';
+import 'package:provider/provider.dart';
+import '../providers/app_state.dart';
+
+class TaskList extends StatelessWidget {
+  final List<TaskStatus> tasks;
+
+  const TaskList({
+    super.key,
+    required this.tasks,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 120,
+      padding: const EdgeInsets.all(8),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: tasks.length,
+        itemBuilder: (context, index) {
+          return TaskCard(task: tasks[index]);
+        },
+      ),
+    );
+  }
+}
+
+class TaskCard extends StatelessWidget {
+  final TaskStatus task;
+
+  const TaskCard({
+    super.key,
+    required this.task,
+  });
+
+  Color get _color {
+    switch (task.state) {
+      case TaskState.running:
+        return Colors.blue;
+      case TaskState.completed:
+        return Colors.green;
+      case TaskState.failed:
+        return Colors.red;
+      case TaskState.cancelled:
+        return Colors.grey;
+      default:
+        return Colors.orange;
+    }
+  }
+
+  IconData get _icon {
+    switch (task.state) {
+      case TaskState.running:
+        return Icons.play_arrow;
+      case TaskState.completed:
+        return Icons.check_circle;
+      case TaskState.failed:
+        return Icons.error;
+      case TaskState.cancelled:
+        return Icons.cancel;
+      default:
+        return Icons.hourglass_empty;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(right: 8),
+      child: Container(
+        width: 200,
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(_icon, color: _color, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    task.description,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (task.state == TaskState.running) ...[
+              LinearProgressIndicator(
+                value: task.progress,
+                backgroundColor: Colors.grey[200],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${(task.progress * 100).toInt()}%',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+            if (task.state == TaskState.failed && task.error != null)
+              Text(
+                task.error!,
+                style: TextStyle(color: Colors.red[700], fontSize: 12),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            if (task.state == TaskState.running)
+              TextButton(
+                onPressed: () {
+                  context.read<AppState>().cancelTask(task.taskId);
+                },
+                child: const Text('Cancel'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
