@@ -6,17 +6,16 @@
 
 ## 版本历史
 
-### v1.0.167（2026-05-05）- 语音发送功能确认
+### v1.0.167（2026-05-05）- 语音发送功能确认 + GitHub 上传
 
 **说明：**
 - ✅ 语音发送功能已完整实现（Android 原生 SpeechRecognizer）
-- 麦克风权限处理、语音识别、结果显示均已支持
-- ⚠️ GitHub 上传待完成（需要 SSH key 或 Token）
+-麦克风权限处理、语音识别、结果显示均已支持
+- ✅ GitHub 上传成功
 
 **GitHub 状态：**
-- 代码已提交本地 Git（commit: 9adc10a）
-- 生成 bundle 文件：`D:\desktop\LittleZiXia_v1.0.167_source.bundle`
-- 仓库不存在，需创建或提供 Token
+- ✅ 代码已推送到 https://github.com/liyu0114/LittleZiXiaForAndroid
+- commit: a8a3c25
 
 **构建结果：**
 - ✅ APK 大小：72.5 MB
