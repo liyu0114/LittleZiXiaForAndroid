@@ -434,3 +434,78 @@ class TaskExecutor {
     return content;
   }
 }
+
+// ==================== P1：分布式分发 ====================
+
+/// 分布式执行器 - 分发任务到多设备
+class DistributedExecutor {
+  final LLMProvider _llmProvider;
+  final List<String> _deviceIds = [];
+  
+  DistributedExecutor({required LLMProvider llmProvider}) : _llmProvider = llmProvider;
+  
+  /// 添加设备
+  void addDevice(String deviceId) {
+    _deviceIds.add(deviceId);
+  }
+  
+  /// 移除设备
+  void removeDevice(String deviceId) {
+    _deviceIds.remove(deviceId);
+  }
+  
+  /// 分发任务到可用设备
+  Future<String?> distributeToDevice(TaskPlan plan, TaskCallback callback) async {
+    // 1. 找到下一个可执行的任务
+    final subtask = plan.getNextExecutable();
+    if (subtask == null) return null;
+    
+    // 2. 选择一个设备（负载均衡：选任务最少的）
+    final deviceId = _selectBestDevice();
+    if (deviceId == null) return '没有可用设备';
+    
+    // 3. 发送到设备执行
+    // TODO: 通过网络发送到设备执行
+    // sendToDevice(deviceId, subtask);
+    
+    // 4. 标记任务为running
+    subtask.status = 'running';
+    
+    return deviceId;
+  }
+  
+  /// 选择最佳设备（负载最低）
+  String? _selectBestDevice() {
+    if (_deviceIds.isEmpty) return null;
+    // TODO: 实现负载均衡逻辑
+    return _deviceIds.first;
+  }
+  
+  /// 收集结果 - 等待所有设备完成
+  Future<String> collectResults(TaskPlan plan, TaskCallback callback) async {
+    // 等待所有任务完成
+    while (!plan.isCompleted) {
+      await Future.delayed(Duration(seconds: 1));
+      // 检查是否有结果返回
+      // TODO: 检查各设备返回的结果
+    }
+    
+    // 汇总结果
+    final results = plan.subtasks
+        .where((s) => s.result != null)
+        .map((s) => s.result)
+        .join('\n---\n');
+    
+    callback.onComplete(results, 0);
+    return results;
+  }
+}
+
+/// 设备信息
+class Device {
+  final String id;
+  final String name;
+  int load; // 当前任务数
+  
+  Device({required this.id, required this.name, this.load = 0});
+}
