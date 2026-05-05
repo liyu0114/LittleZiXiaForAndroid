@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LittleZiXia Android 团队蓝图 - v1.0.166</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; line-height: 1.6; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1 { font-size: 28px; color: #1a73e8; margin-bottom: 10px; }
+        h2 { font-size: 22px; color: #333; margin: 30px 0 15px; border-left: 4px solid #1a73e8; padding-left: 12px; }
+        h3 { font-size: 18px; color: #555; margin: 20px 0 10px; }
+        .version { background: #e8f0fe; color: #1a73e8; padding: 4px 12px; border-radius: 4px; font-size: 14px; display: inline-block; margin-bottom: 20px; }
+        .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-right: 8px; }
+        .status-done { background: #d4edda; color: #155724; }
+        .status-todo { background: #fff3cd; color: #856404; }
+        .status-wait { background: #e2e3e5; color: #383d41; }
+        table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; font-weight: 600; }
+        .layer { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; margin: 10px 0; text-align: center; }
+        .layer-arrow { text-align: center; color: #999; font-size: 20px; }
+        .todo-item { display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+        .todo-check { width: 18px; height: 18px; margin-right: 10px; }
+        .priority { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-right: 10px; font-weight: 600; }
+        .priority-p0 { background: #ffebee; color: #c62828; }
+        .priority-p1 { background: #fff3e0; color: #ef6c00; }
+        .priority-p2 { background: #e8f5e9; color: #2e7d32; }
+        .priority-p3 { background: #e3f2fd; color: #1565c0; }
+        .file-list { font-family: monospace; font-size: 13px; color: #666; background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; }
+        .code { background: #f8f9fa; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 13px; color: #d63384; }
+        @media (max-width: 600px) {
+            .container { padding: 15px; }
+            h1 { font-size: 22px; }
+            h2 { font-size: 18px; }
+            table { font-size: 13px; }
+            th, td { padding: 8px 6px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🦞 LittleZiXia Android 团队蓝图</h1>
+        <span class="version">版本 v1.0.166 | 2026-04-28</span>
+        
+        <h2>📐 架构总览</h2>
+        <div class="layer">用户交互层 (22+ 页面)</div>
+        <div class="layer-arrow">↓</div>
+        <div class="layer">业务能力层 (35+ 服务)</div>
+        <div class="layer-arrow">↓</div>
+        <div class="layer">基础服务层 (LLM/Web/Memory/Remote)</div>
+        <div class="layer-arrow">↓</div>
+        <div class="layer">设备能力层 (手脚)</div>
+
+        <h2>✅ 已实现功能</h2>
+        
+        <h3>1. Agent 任务执行系统</h3>
+        <div class="card">
+            <span class="status status-done">已实现</span> AgentLoopV2 - function calling、上下文压缩、死循环检测<br>
+            <span class="status status-done">已实现</span> TaskDecomposer - 任务分解<br>
+            <span class="status status-done">已实现</span> 任务规划 + 多子任务检测 (v1.0.166)
+            <table>
+                <tr><th>组件</th><th>文件</th><th>功能</th></tr>
+                <tr><td>AgentLoopV2</td><td class="code">agent_loop_v2.dart</td><td>主循环</td></tr>
+                <tr><td>TaskDecomposer</td><td class="code">task_decomposer.dart</td><td>任务分解</td></tr>
+                <tr><td>AgentTools</td><td class="code">agent_tools.dart</td><td>可注册工具</td></tr>
+                <tr><td>MetaTools</td><td class="code">meta_tools.dart</td><td>元工具</td></tr>
+            </table>
+        </div>
+
+        <h3>2. Skill 系统（12个文件）</h3>
+        <div class="card">
+            <span class="status status-done">已实现</span> SkillSystem - 完整生命周期<br>
+            <span class="status status-done">已实现</span> MarkdownSkillExecutor<br>
+            <span class="status status-done">已实现</span> IntentRecognizer<br>
+            <span class="status status-done">已实现</span> ClawhubService<br>
+            <div class="file-list">skills/: skill_system.dart, skill_manager_new.dart, markdown_skill_executor.dart, intent_recognizer.dart, skill_lifecycle.dart, clawhub_service.dart, skill_share_service.dart, skill_summarizer.dart, skill_version_manager.dart, skill_param_extractor.dart, markdown_skill_parser.dart, skill_instruction.dart</div>
+        </div>
+
+        <h3>3. 群聊协作系统</h3>
+        <div class="card">
+            <span class="status status-done">已实现</span> 角色系统（6种角色）<br>
+            <span class="status status-done">已实现</span> 艾特功能 @成员<br>
+            <span class="status status-done">已实现</span> 机器人协作（串行/并行）<br>
+            <span class="status status-done">已实现</span> OpenClaw 协作 (Gateway WebSocket)
+        </div>
+
+        <h3>4. 24点游戏</h3>
+        <div class="card">
+            <span class="status status-done">已实现</span> 联网对战 + 抢答<br>
+            <span class="status status-done">已实现</span> 记分系统 + 排行榜
+        </div>
+
+        <h3>5. 远程控制</h3>
+        <div class="card">
+            <span class="status status-done">已实现</span> P2P 直连<br>
+            <span class="status status-done">已实现</span> Gateway 代理<br>
+            <span class="status status-done">已实现</span> 远程工具调用
+        </div>
+
+        <h3>6. 记忆系统</h3>
+        <div class="card">
+            <span class="status status-done">已实现</span> 长期记忆<br>
+            <span class="status status-done">已实现</span> 历史压缩（30条→10条）<br>
+            <span class="status status-done">已实现</span> 跨话题记忆搜索
+        </div>
+
+        <h2>📋 TODO 清单</h2>
+
+        <h3>P0 - 立即验证</h3>
+        <div class="card">
+            <div class="todo-item"><input type="checkbox" class="todo-check"> v1.0.166 任务规划测试</div>
+            <div class="todo-item"><input type="checkbox" class="todo-check"> Skill 自动生成验证</div>
+            <div class="todo-item"><input type="checkbox" class="todo-check"> 版本号同步</div>
+        </div>
+
+        <h3>P1 - 本季度目标</h3>
+        <div class="card">
+            <span class="priority priority-p1">P1</span> 上下文管理增强<br>
+            <span class="priority priority-p1">P1</span> 多机协作优化<br>
+            <span class="priority priority-p1">P1</span> 本地模型支持（Android）
+        </div>
+
+        <h3>P2 - 下半年规划</h3>
+        <div class="card">
+            <span class="priority priority-p2">P2</span> 代码瘦身<br>
+            <span class="priority priority-p2">P2</span> SkillHub 增强
+        </div>
+
+        <h3>P3 - 长期规划</h3>
+        <div class="card">
+            <span class="priority priority-p3">P3</span> 老机器复用（时间换算力）<br>
+            <span class="priority priority-p3">P3</span> 游戏生成引擎<br>
+            <span class="priority priority-p3">P3</span> Apple Watch 支持
+        </div>
+
+        <h2>📊 对比 iOS 蓝图</h2>
+        <div class="card">
+            <table>
+                <tr><th>功能</th><th>对齐度</th><th>状态</th></tr>
+                <tr><td>Task Decomposer</td><td>100%</td><td>✅ 已对齐</td></tr>
+                <tr><td>Skill Runtime</td><td>100%</td><td>✅ 已对齐</td></tr>
+                <tr><td>Memory Governance</td><td>95%</td><td>✅ 已对齐</td></tr>
+                <tr><td>群聊协作</td><td>95%</td><td>✅ 已对齐</td></tr>
+                <tr><td>角色系统</td><td>100%</td><td>✅ 已对齐</td></tr>
+                <tr><td>设备能力</td><td>90%</td><td>✅ 已对齐</td></tr>
+                <tr><td>Compute Fabric</td><td>60%</td><span class="status status-todo">需完善</span></tr>
+                <tr><td>本地模型</td><td>50%</td><span class="status status-todo">开发中</span></tr>
+            </table>
+        </div>
+
+        <h2>📁 相关文档</h2>
+        <div class="card">
+            <div>• 需求历史: <code>D:\LittleZiXia\REQUIREMENTS.md</code></div>
+            <div>• 开发铁律: <code>D:\LittleZiXia\PRINCIPLES.md</code></div>
+            <div>• 代码瘦身: <code>D:\LittleZiXia\QA\code-cleanup.md</code></div>
+        </div>
+
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+        <p style="text-align: center; color: #999; font-size: 14px;">
+            最后更新: 2026-05-04 | 基于 v1.0.166 代码分析
+        </p>
+    </div>
+</body>
+</html>
