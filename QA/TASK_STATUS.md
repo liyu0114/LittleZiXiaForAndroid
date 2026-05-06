@@ -9,24 +9,18 @@
 
 ### 无障碍服务（P1，20h）
 
-**进度：** 5h / 20h (25%)
+**进度：** 8h / 20h (40%)
 
-**状态：** Platform Channel + 支付宝脚本完成
+**状态：** 多种APP自动化脚本完成
 
-**当前步骤：** 待手机连接测试
+**已完成脚本：**
+- ✅ AlipayScript (支付宝)
+- ✅ WeChatScript (微信)
+- ✅ TaoBaoScript (淘宝)
+- ✅ DouyinScript (抖音)
+- ✅ ScriptManager (统一管理器)
 
-**下一步：** 真机测试点击、输入、滚动功能
-
-**Liyu 指示：** 先实现支付宝脚本 ✅
-
-**已完成文件：**
-- ✅ `accessibility_service.dart` (7KB)
-- ✅ `LittleZiXiaAccessibilityService.kt` (6.4KB)
-- ✅ `AndroidManifest.xml` (权限配置)
-- ✅ `accessibility_service_config.xml`
-- ✅ `strings.xml`
-- ✅ `MainActivity.kt` - Platform Channel
-- ✅ `alipay_script.dart` - 支付宝脚本 ✅
+**提交:** v1.0.233, v1.0.234
 
 **提交:** fa018cd, c7d3247, 1d1b54e, be0d692, 5225a49, 217xxxx
 
