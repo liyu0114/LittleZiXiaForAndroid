@@ -37,7 +37,7 @@ class ModelDownloadManager {
       description: '最小模型，适合低端手机',
       downloadUrl: 'https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/qwen3-0.6b-q4_k_m.gguf',
       sizeMB: 470,
-      contextLength: 32K,
+      contextLength: 32000,
       source: 'huggingface',
     ),
     DownloadableModel(
@@ -46,7 +46,7 @@ class ModelDownloadManager {
       description: '平衡性能和内存',
       downloadUrl: 'https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/qwen3-1.7b-q4_k_m.gguf',
       sizeMB: 970,
-      contextLength: 32K,
+      contextLength: 32000,
       source: 'huggingface',
     ),
     DownloadableModel(
@@ -55,7 +55,7 @@ class ModelDownloadManager {
       description: '高性能，需要大内存',
       downloadUrl: 'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/qwen3-4b-q4_k_m.gguf',
       sizeMB: 2700,
-      contextLength: 128K,
+      contextLength: 128000,
       source: 'huggingface',
     ),
     // Phi 系列
@@ -65,7 +65,7 @@ class ModelDownloadManager {
       description: '微软小模型',
       downloadUrl: 'https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4_k_m.gguf',
       sizeMB: 700,
-      contextLength: 4K,
+      contextLength: 4000,
       source: 'huggingface',
     ),
     // Llama3
@@ -75,7 +75,7 @@ class ModelDownloadManager {
       description: 'Meta 小模型',
       downloadUrl: 'https://huggingface.co/UnsandboxAI/Llama-3-2B-Instruct-M2-GGUF/resolve/main/Llama-3-2B-Instruct-M2-Q4_K_M.gguf',
       sizeMB: 1400,
-      contextLength: 8K,
+      contextLength: 8000,
       source: 'huggingface',
     ),
   ];

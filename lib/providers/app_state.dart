@@ -30,7 +30,7 @@ import '../services/web/web_fetch_service.dart';
 import '../services/memory/memory_service.dart';
 import '../services/memory/memory_service_v2.dart';
 import '../services/vision/image_analysis_service.dart';
-import '../services/context/context_manager.dart';
+import '../services/context/context_manager.dart' hide ChatMessage;
 import '../services/llm_logger_service.dart';  // LLM 日志服务
 import '../services/agent/agent_loop_v2.dart';
 import '../services/agent/agent_tools.dart';

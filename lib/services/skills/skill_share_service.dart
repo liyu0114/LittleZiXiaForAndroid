@@ -72,7 +72,7 @@ class ShareableSkill {
 
   /// 转换为 Base64
   String toBase64() {
-    return base64Encode(utf8.encode(jsonEncode(toJson()));
+    return base64Encode(utf8.encode(jsonEncode(toJson())));
   }
 
   /// 从 Base64 解析
