@@ -13,17 +13,24 @@ class MainActivity : FlutterActivity() {
     private val CHANNEL_SPEECH = "com.example.openclaw_app/speech"
     private val CHANNEL_FILE = "com.example.openclaw_app/file"
     private val CHANNEL_ACCESSIBILITY = "com.example.openclaw_app/accessibility"
+    private val CHANNEL_LOCAL_MODEL = "com.example.openclaw_app/local_model"
     private val PICK_FILE_REQUEST_CODE = 1001
     private var filePickerResult: MethodChannel.Result? = null
     
     // 语音识别管理器
     private var speechManager: SpeechRecognizerManager? = null
+    
+    // 本地模型管理器
+    private var localModelManager: LocalModelManager? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
         // 初始化语音识别管理器
         speechManager = SpeechRecognizerManager(this)
+        
+        // 初始化本地模型管理器
+        localModelManager = LocalModelManager(this)
 
         // 语音识别 Channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_SPEECH).setMethodCallHandler { call, result ->
@@ -113,6 +120,53 @@ class MainActivity : FlutterActivity() {
                 "getCurrentPackage" -> {
                     val package = LittleZiXiaAccessibilityService.instance?.getCurrentPackage()
                     result.success(package)
+                }
+                else -> result.notImplemented()
+            }
+        }
+        
+        // 本地模型 Channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_LOCAL_MODEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getModels" -> {
+                    val models = localModelManager?.getModels() ?: emptyList()
+                    val modelList = models.map { mapOf(
+                        "id" to it.id,
+                        "name" to it.name,
+                        "sizeMB" to it.sizeMB,
+                        "contextLength" to it.contextLength
+                    )}
+                    result.success(modelList)
+                }
+                "loadModel" -> {
+                    val modelId = call.argument<String>("modelId") ?: ""
+                    localModelManager?.loadModel(modelId) { success, error ->
+                        if (success) {
+                            result.success(true)
+                        } else {
+                            result.error("LOAD_FAILED", error, null)
+                        }
+                    }
+                }
+                "generate" -> {
+                    val prompt = call.argument<String>("prompt") ?: ""
+                    val maxTokens = call.argument<Int>("maxTokens") ?: 256
+                    val temperature = call.argument<Double>("temperature")?.toFloat() ?: 0.7f
+                    
+                    val response = StringBuffer()
+                    localModelManager?.generate(prompt, maxTokens, temperature) { token, done ->
+                        response.append(token)
+                        if (done) {
+                            result.success(response.toString())
+                        }
+                    }
+                }
+                "unload" -> {
+                    localModelManager?.unloadModel()
+                    result.success(true)
+                }
+                "isLoaded" -> {
+                    result.success(localModelManager?.isLoaded() ?: false)
                 }
                 else -> result.notImplemented()
             }
