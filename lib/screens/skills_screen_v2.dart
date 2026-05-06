@@ -1132,7 +1132,7 @@ class _SkillsScreenV2State extends State<SkillsScreenV2>
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success ? '✅ 分享成功' : '❌ 分享失败'),
+          content: Text(success == null ? '❌ 分享失败' : '✅ 分享成功'),
         ),
       );
     }
