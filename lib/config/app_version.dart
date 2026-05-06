@@ -3,10 +3,10 @@
 // 统一管理版本号，避免不一致
 
 class AppVersion {
-  static const String version = '1.0.168';
-  static const String buildNumber = '168';
-  static const String fullVersion = 'v1.0.168';
-  static const String buildDate = '2026-05-05';
+  static const String version = '1.0.169';
+  static const String buildNumber = '169';
+  static const String fullVersion = 'v1.0.169';
+  static const String buildDate = '2026-05-06';
   
   static String get displayVersion => version;
   static String get fullDisplayVersion => '$version+$buildNumber';
