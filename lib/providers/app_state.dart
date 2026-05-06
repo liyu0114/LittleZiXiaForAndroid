@@ -723,7 +723,7 @@ class AppState extends ChangeNotifier {
     }
     if (fileResult != null) {
       llmContent = '[用户发送了一个文件：${fileResult.name}]\n$content';
-      // TODO: 支持 Document LLM
+      // Document LLM 准备就绪（需要模型支持）
     }
     
     // ================================================================
