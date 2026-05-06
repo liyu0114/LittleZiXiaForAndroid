@@ -1,7 +1,7 @@
 // 本地模型服务测试 - L1 单元测试
 import 'package:flutter_test/flutter_test.dart';
 
-/// 模型信息
+/// 模型信息（测试用）
 class ModelInfo {
   final String id;
   final String name;
@@ -16,18 +16,44 @@ class ModelInfo {
   });
 }
 
-/// 本地模型服务
-class LocalModelService {
+/// 本地模型服务测试
+class LocalModelTest {
   final Map<String, ModelInfo> _models = {};
   String? _currentModel;
   bool _isLoading = false;
   
-  bool get isLoading => _isLoading;
-  String? get currentModel => _currentModel;
-  
+  // 模拟 API
   void registerModel(String id, String name, String size) {
     _models[id] = ModelInfo(id: id, name: name, size: size);
   }
+  
+  List<ModelInfo> get models => _models.values.toList();
+  
+  Future<bool> loadModel(String id) async {
+    if (!_models.containsKey(id)) return false;
+    _isLoading = true;
+    await Future.delayed(Duration(milliseconds: 100));
+    _models[id] = ModelInfo(id: id, name: _models[id]!.name, size: _models[id]!.size, isLoaded: true);
+    _currentModel = id;
+    _isLoading = false;
+    return true;
+  }
+  
+  void unloadModel(String id) {
+    if (_models.containsKey(id)) {
+      _models[id] = ModelInfo(id: id, name: _models[id]!.name, size: _models[id]!.size, isLoaded: false);
+    }
+    if (_currentModel == id) _currentModel = null;
+  }
+  
+  Future<String> generate(String prompt) async {
+    if (_currentModel == null) return '请先加载模型';
+    await Future.delayed(Duration(milliseconds: 50));
+    return '模拟回复: $prompt';
+  }
+  
+  bool get isModelLoaded => _models[_currentModel]?.isLoaded ?? false;
+}
   
   List<ModelInfo> get availableModels => _models.values.toList();
   

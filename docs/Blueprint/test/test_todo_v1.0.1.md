@@ -43,17 +43,19 @@
 | L1-04 | 超长上下文测试 | ⚠️ 测试代码已写，待运行 | context_manager_test.dart |
 | L1-05 | 断线重连测试 | ⚠️ 测试代码已写，待运行 | network_recovery_test.dart |
 | L1-02 | 技能自造服务测试 | [ ] | skill_auto_creator_test.dart |
-| L1-03 | 本地模型服务测试 | [ ] | local_model_service_test.dart |
-| L1-04 | 超长上下文测试 | [ ] | context_manager_test.dart |
+| L1-03 | 本地模型服务测试 | ⚠️ 测试代码已写，待运行 | local_model_service_test.dart |
+| L1-04 | 超长上下文测试 | ⚠️ 测试代码已写，待运行 | context_manager_test.dart |
 | L1-05 | 断线重连测试 | [ ] | network_recovery_test.dart |
 | L1-06 | P2P混合网络测试 | [ ] | hybrid_network_test.dart |
 | L1-07 | HTTP代理测试 | [ ] | http_proxy_test.dart |
 | L1-08 | WebSocket测试 | [ ] | websocket_test.dart |
 | L1-09 | 游戏托管测试 | [ ] | game_timeout_test.dart |
 | L1-10 | 权限管理测试 | ⚠️ 测试代码已写，待运行 | permission_test.dart |
-| L1-11 | 缓存管理测试 | [ ] | cache_test.dart |
-| L1-12 | 数据库测试 | [ ] | database_test.dart |
+| L1-11 | 缓存管理测试 | ⚠️ 测试代码已写，待运行 | cache_test.dart |
+| L1-12 | 数据库测试 | ⚠️ 测试代码已写，待运行 | database_test.dart |
 | L1-13 | 记忆系统测试 | ⚠️ 测试代码已写，待运行 | memory_test.dart |
+| L1-05 | 断线重连测试 | ⚠️ 测试代码已写，待运行 | network_recovery_test.dart |
+| L1-09 | 游戏托管测试 | ⚠️ 测试代码已写，待运行 | game_timeout_test.dart |
 | L1-14 | 情感计算测试 | [ ] | emotion_test.dart |
 | L1-15 | 自主学习测试 | [ ] | autonomous_learner_test.dart |
 
@@ -102,6 +104,7 @@
 | 07:12 | L1-02 | ⚠️ 测试代码已写，待运行 | 10个测试用例 |
 | 07:13 | L1-10 | ⚠️ 测试代码已写，待运行 | 10个测试用例 |
 | 07:13 | L1-13 | ⚠️ 测试代码已写，待运行 | 8个测试用例 |
+| 07:27 | **本地模型集成** | ✅ 已完成 | M1: Android端 + M2: Flutter端 + M3: Channel |
 
 ---
 
