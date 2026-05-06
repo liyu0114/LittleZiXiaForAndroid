@@ -112,10 +112,16 @@ class SkillShareService {
   }
   
   /// 分享技能
-  Future<void> shareSkill(Skill skill) async {
-    final shareable = ShareableSkill.fromSkill(skill);
-    final markdown = shareable.toMarkdown();
-    await Share.share(markdown, subject: skill.metadata.name);
+  Future<bool> shareSkill(Skill skill) async {
+    try {
+      final shareable = ShareableSkill.fromSkill(skill);
+      final markdown = shareable.toMarkdown();
+      await Share.share(markdown, subject: skill.metadata.name);
+      return true;
+    } catch (e) {
+      debugPrint('[SkillShareService] 分享失败: $e');
+      return false;
+    }
   }
 
   /// 分享 JSON 内容
