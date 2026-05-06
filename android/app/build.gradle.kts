@@ -20,13 +20,13 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
     
-    // 本地模型 NDK 配置
-    externalNativeBuild {
-        cmake {
-            path = file("CMakeLists.txt")
-            version = "3.18.1"
-        }
-    }
+    // 暂时禁用本地模型 NDK 编译（需要 llama.cpp）
+    // externalNativeBuild {
+    //     cmake {
+    //         path = file("CMakeLists.txt")
+    //         version = "3.18.1"
+    //     }
+    // }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
