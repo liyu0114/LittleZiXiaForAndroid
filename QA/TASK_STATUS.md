@@ -1,11 +1,43 @@
 # 当前任务状态
 
-**最后更新：** 2026-03-30 22:52
+**最后更新：** 2026-05-06 12:38
 **更新人：** 程序员
 
 ---
 
 ## 🔥 进行中
+
+### 本地模型（P1）
+
+**进度：** 完成
+**状态：** 框架+下载+UI
+
+**已完成：**
+- LocalModelManager.kt (Android)
+- local_model_service.dart (Flutter)
+- llama.cpp JNI框架
+- model_download_service.dart
+- settings_screen 下载UI
+
+---
+
+### 记忆系统（P1）
+
+**进度：** 完成
+**状态：** SQLite+FTS5
+
+**已完成：**
+- MemoryServiceV2
+- AppState集成
+
+---
+
+### 任务执行（P1）
+
+**进度：** 完成
+**状态：** TaskExecutor
+
+---
 
 ### 无障碍服务（P1，20h）
 
