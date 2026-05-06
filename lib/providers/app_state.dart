@@ -28,6 +28,7 @@ import '../services/sensors/sensor_service.dart';
 import '../services/web/web_search_service.dart';
 import '../services/web/web_fetch_service.dart';
 import '../services/memory/memory_service.dart';
+import '../services/memory/memory_service_v2.dart';
 import '../services/vision/image_analysis_service.dart';
 import '../services/context/context_manager.dart';
 import '../services/llm_logger_service.dart';  // LLM 日志服务
@@ -234,6 +235,9 @@ class AppState extends ChangeNotifier {
   // Memory 服务
   late MemoryService _memoryService;
 
+  // Memory V2 服务 (SQLite + FTS5)
+  late MemoryServiceV2 _memoryServiceV2;
+
   // 上下文管理
   late ContextManager _contextManager;
 
@@ -290,6 +294,7 @@ class AppState extends ChangeNotifier {
   TTSService get ttsService => _ttsService;
   SensorService get sensorService => _sensorService;
   MemoryService get memoryService => _memoryService;
+  MemoryServiceV2 get memoryServiceV2 => _memoryServiceV2;
   RemoteConnection? get remoteConnection => _remoteConnection;
   QRCodeService? get qrcodeService => _qrcodeService;
   bool get isRemoteConnected => _remoteConnection?.isConnected ?? false;
@@ -375,6 +380,10 @@ class AppState extends ChangeNotifier {
 
     // 初始化 Memory 服务
     _memoryService = MemoryService();
+
+    // 初始化 Memory V2 服务
+    _memoryServiceV2 = MemoryServiceV2();
+    await _memoryServiceV2.initialize();
 
     // 初始化上下文管理
     _contextManager = ContextManager();
