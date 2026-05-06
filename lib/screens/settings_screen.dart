@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/app_state.dart';
 import '../services/llm/llm_base.dart';
+import '../services/llm/model_download_service.dart';
 import '../config/app_version.dart';
 import 'memory_search_screen.dart';
 
@@ -110,6 +111,27 @@ class SettingsScreen extends StatelessWidget {
                     onTap: () => _summarizeSkill(context, appState),
                   );
                 },
+              ),
+            ],
+          ),
+          const Divider(),
+          _buildSection(
+            context,
+            '本地模型管理',
+            [
+              ListTile(
+                leading: const Icon(Icons.download_for_offline),
+                title: const Text('下载模型'),
+                subtitle: const Text('下载 GGUF 大语言模型'),
+                trailing: const Icon(Icons.arrow_forward),
+                onTap: () => _showModelDownloadDialog(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.folder),
+                title: const Text('已下载模型'),
+                subtitle: const Text('管理本地模型文件'),
+                trailing: const Icon(Icons.arrow_forward),
+                onTap: () {},
               ),
             ],
           ),
@@ -329,6 +351,142 @@ class SettingsScreen extends StatelessWidget {
           content: Text('❌ 总结失败: $e'),
           duration: const Duration(seconds: 3),
         ),
+      );
+    }
+  }
+  
+  // ============ 模型下载对话框 ============
+  
+  void _showModelDownloadDialog(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) => _ModelDownloadSheet(
+          scrollController: scrollController,
+        ),
+      ),
+    );
+  }
+}
+
+/// 模型下载底部面板
+class _ModelDownloadSheet extends StatefulWidget {
+  final ScrollController scrollController;
+  
+  const _ModelDownloadSheet({required this.scrollController});
+  
+  @override
+  State<_ModelDownloadSheet> createState() => _ModelDownloadSheetState();
+}
+
+class _ModelDownloadSheetState extends State<_ModelDownloadSheet> {
+  String? _downloadingModelId;
+  double _progress = 0;
+  String? _error;
+  
+  @override
+  Widget build(BuildContext context) {
+    final models = ModelDownloadManager.getModels();
+    
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Column(
+        children: [
+          // 标题
+          Container(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                const Icon(Icons.download_for_offline),
+                const SizedBox(width: 8),
+                const Text(
+                  '下载本地模型',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          ),
+          const Divider(),
+          // 模型列表
+          Expanded(
+            child: ListView.builder(
+              controller: widget.scrollController,
+              itemCount: models.length,
+              itemBuilder: (context, index) {
+                final model = models[index];
+                final isDownloading = _downloadingModelId == model.id;
+                
+                return Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: ListTile(
+                    title: Text(model.name),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(model.description),
+                        Text('${model.sizeMB}MB', style: const TextStyle(fontSize: 12)),
+                        if (isDownloading) ...[
+                          const SizedBox(height: 8),
+                          LinearProgressIndicator(value: _progress),
+                          Text('${(_progress * 100).toInt()}%', style: const TextStyle(fontSize: 12)),
+                        ],
+                        if (_error != null && isDownloading)
+                          Text(_error!, style: const TextStyle(color: Colors.red)),
+                      ],
+                    ),
+                    trailing: isDownloading
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : ElevatedButton(
+                            onPressed: () => _downloadModel(model),
+                            child: const Text('下载'),
+                          ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Future<void> _downloadModel(DownloadableModel model) async {
+    setState(() {
+      _downloadingModelId = model.id;
+      _progress = 0;
+      _error = null;
+    });
+    
+    // 模拟下载进度（实际需要连接后端）
+    for (int i = 0; i <= 10; i++) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      setState(() => _progress = i / 10);
+    }
+    
+    setState(() {
+      _downloadingModelId = null;
+    });
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('✅ ${model.name} 下载完成')),
       );
     }
   }
