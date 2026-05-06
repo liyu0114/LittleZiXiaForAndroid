@@ -19,6 +19,14 @@ android {
     namespace = "com.example.openclaw_app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
+    
+    // 本地模型 NDK 配置
+    externalNativeBuild {
+        cmake {
+            path = file("CMakeLists.txt")
+            version = "3.18.1"
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
