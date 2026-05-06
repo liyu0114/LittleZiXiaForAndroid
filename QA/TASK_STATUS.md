@@ -9,31 +9,51 @@
 
 ### 无障碍服务（P1，20h）
 
-**进度：** 1.5h / 20h (7.5%)
+**进度：** 5h / 20h (25%)
 
-**状态：** 基础框架完成，Platform Channel 集成中
+**状态：** Platform Channel + 支付宝脚本完成
 
-**当前步骤：** Platform Channel 集成
+**当前步骤：** 待手机连接测试
 
-**下一步：** 测试基础功能
+**下一步：** 真机测试点击、输入、滚动功能
 
-**Liyu 指示：** 先实现支付宝脚本
+**Liyu 指示：** 先实现支付宝脚本 ✅
 
 **已完成文件：**
-- ✅ `lib/services/accessibility/accessibility_service.dart` (7KB)
-- ✅ `android/app/src/main/kotlin/.../LittleZiXiaAccessibilityService.kt` (6.4KB)
-- ✅ `android/app/src/main/AndroidManifest.xml` (权限配置)
-- ✅ `android/app/src/main/res/xml/accessibility_service_config.xml`
-- ✅ `android/app/src/main/res/values/strings.xml`
+- ✅ `accessibility_service.dart` (7KB)
+- ✅ `LittleZiXiaAccessibilityService.kt` (6.4KB)
+- ✅ `AndroidManifest.xml` (权限配置)
+- ✅ `accessibility_service_config.xml`
+- ✅ `strings.xml`
+- ✅ `MainActivity.kt` - Platform Channel
+- ✅ `alipay_script.dart` - 支付宝脚本 ✅
+
+**提交:** fa018cd, c7d3247, 1d1b54e, be0d692, 5225a49, 217xxxx
+
+---
+
+### 本地模型（P1，新）
+
+**进度：** 3h / ???
+
+**状态：** 框架已完成
+
+**已完成：**
+- ✅ LocalModelManager.kt (Android)
+- ✅ local_model_service.dart (Flutter)
+- ✅ llama.cpp JNI 框架
+- ✅ model_download_service.dart (下载服务)
+- ✅ settings_screen.dart (下载UI)
+
+**提交:** v1.0.224~v1.0.228
 
 **待完成：**
-- ⏳ Platform Channel 集成
 - ⏳ 测试基础功能（点击、输入、滚动）
 - ⏳ 支付宝脚本设计
 - ⏳ 支付宝脚本实现（打开、扫码、转账、查询）
 - ⏳ 完整测试
 
-**提交：** fa018cd, c7d3247, 1d1b54e
+**提交：** fa018cd, c7d3247, 1d1b54e, be0d692
 
 ---
 
