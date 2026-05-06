@@ -12,7 +12,7 @@ class Project {
   final String name;
   final String? description;
   final DateTime createdAt;
-  final DateTime updatedAt;
+  DateTime updatedAt;
   List<Conversation> conversations;
   String? summary;
   

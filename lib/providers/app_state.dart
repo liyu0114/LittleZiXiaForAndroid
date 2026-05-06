@@ -381,9 +381,8 @@ class AppState extends ChangeNotifier {
     // 初始化 Memory 服务
     _memoryService = MemoryService();
 
-    // 初始化 Memory V2 服务
+    // Memory V2 暂不自动初始化（在需要时手动调用）
     _memoryServiceV2 = MemoryServiceV2();
-    await _memoryServiceV2.initialize();
 
     // 初始化上下文管理
     _contextManager = ContextManager();
