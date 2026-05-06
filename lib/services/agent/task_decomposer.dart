@@ -345,7 +345,7 @@ class RoundBuffer {
   
   /// 添加内容到缓冲
   void add(String content) {
-    if (content.isNotEmpty()) {
+    if (content.isNotEmpty) {
       _buffer.write(content);
     }
   }

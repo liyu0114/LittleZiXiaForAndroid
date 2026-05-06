@@ -106,6 +106,11 @@ $body
 
 /// 技能分享服务
 class SkillShareService {
+  /// 创建从JSON
+  static ShareableSkill createFromJson(Map<String, dynamic> json) {
+    return ShareableSkill.fromJson(json);
+  }
+  
   /// 分享技能
   Future<void> shareSkill(Skill skill) async {
     final shareable = ShareableSkill.fromSkill(skill);

@@ -143,7 +143,9 @@ class ContextManager extends ChangeNotifier {
     conv.summary = '[摘要] $recent ... (共${conv.messages.length}条消息)';
     
     // 只保留最近的
-    conv.messages = conv.messages.skip(conv.messages.length - KEEP_RECENT).toList();
+    final newMessages = conv.messages.skip(conv.messages.length - KEEP_RECENT).toList();
+    conv.messages.clear();
+    conv.messages.addAll(newMessages);
     
     debugPrint('[ContextManager] 压缩对话: ${conv.id}');
   }
