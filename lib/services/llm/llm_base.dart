@@ -117,6 +117,7 @@ class ModelInfo {
   final String? description;
   final int? contextLength;
   final bool supportsVision;
+  final bool supportsVideo;
   final bool supportsTools;
 
   ModelInfo({
@@ -125,6 +126,7 @@ class ModelInfo {
     this.description,
     this.contextLength,
     this.supportsVision = false,
+    this.supportsVideo = false,
     this.supportsTools = false,
   });
 }
