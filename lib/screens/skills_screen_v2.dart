@@ -1100,7 +1100,8 @@ class _SkillsScreenV2State extends State<SkillsScreenV2>
     
     if (result != null && result.isNotEmpty) {
       final shareService = SkillShareService();
-      final imported = shareService.createFromJson(jsonDecode(result));
+      final jsonResult = jsonDecode(result);
+      final imported = SkillShareService.createFromJson(jsonResult);
       
       if (imported != null) {
         final managed = await manager.createSkillFromConversation(
